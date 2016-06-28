@@ -203,11 +203,14 @@ static int spawn()
 
 	p = fork();
 	if (p) {
+		if (p == -1) {
+			printf("fork(): %s\n", strerror(errno));
+		}
 		return 0;
 	}
 
 	setsid();
-	/* TODO open an actual terminal */
+	/* TODO open a terminal */
 	if (execve("/bin/bash", args, environ)) {
 		printf("exec(%s): %s\n", INIT_PROGRAM, strerror(errno));
 	}

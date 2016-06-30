@@ -6,11 +6,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
 #include <termios.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -30,7 +32,7 @@ static void sighand(int signum)
 {
 	switch (signum)
 	{
-		/*case SIGHUP:
+		/*
 		case SIGUSR1:
 		case SIGUSR2:
 			break;*/
@@ -54,7 +56,7 @@ static void sigsetup()
 	sigaction(SIGTERM,  &sa, NULL);
 	sigaction(SIGQUIT,  &sa, NULL);
 	sigaction(SIGINT,   &sa, NULL);
-	/*sigaction(SIGHUP,   &sa, NULL);
+	/*
 	sigaction(SIGUSR1,  &sa, NULL);
 	sigaction(SIGUSR2,  &sa, NULL);*/
 }
@@ -113,7 +115,7 @@ int initialize()
 	if (p == 0) {
 		char *args[] = { NULL, NULL };
 		if (execve(INIT_PROGRAM, args, environ)) {
-			printf("exec(%s): %s\n", INIT_PROGRAM, strerror(errno));
+			printf("exec(%s): %s\n", INIT_PROGRAM,strerror(errno));
 		}
 		return -1;
 	}
@@ -196,6 +198,114 @@ static void wait_loop()
 	}
 }
 
+
+/* open_tty - set up tty device as stdio
+ * based on mingetty open_tty
+ * TODO serial console
+ * figure out why this doesn't work on 4.6  argh
+ *
+ */
+static int open_tty(char *tty_num, int hangup, int clear)
+{
+	struct sigaction sa, sa_old;
+	char ttypath[40];
+	int fd;
+
+	setsid();
+
+	if (tty_num == NULL) {
+		printf("null string passed to open_tty\n");
+		return -1;
+	}
+
+	snprintf(ttypath, sizeof(ttypath), "/dev/tty%s", tty_num);
+	printf("ttypath: %s\n", ttypath);
+
+	if (chown(ttypath, 0, 0) || chmod(ttypath, 0600)) {
+		if (errno != EROFS) {
+			printf("%s: chown/chmod %s ", ttypath, strerror(errno));
+			return -1;
+		}
+	}
+
+	sa.sa_handler = SIG_IGN;
+	sa.sa_flags = 0;
+	sigemptyset(&sa.sa_mask);
+	sigaction(SIGHUP, &sa, NULL);
+
+	fd = open(ttypath, O_RDWR, 0);
+	if (fd < 0) {
+		printf("%s: cannot open tty: %s\n", ttypath, strerror(errno));
+		return -1;
+	}
+	if (ioctl(fd, TIOCSCTTY, (void *)1) == -1) {
+		printf("%s: ioctl(TIOCSCTTY): %s\n",ttypath,strerror(errno));
+		return -1;
+	}
+	if (!isatty(fd)) {
+		printf("%s: not a tty\n", ttypath);
+		return -1;
+	}
+
+	/* vhangup() will replace all open file descriptors in the kernel
+	   that point to our controlling tty by a dummy that will deny
+	   further reading/writing to our device. It will also reset the
+	   tty to sane defaults, so we don't have to modify the tty device
+	   for sane settings. We also get a SIGHUP/SIGCONT.
+	   */
+	if (hangup) {
+		printf("calling hangup\n");
+		if (vhangup()) {
+			printf("%s: vhangup() failed\n", ttypath);
+			return -1;
+		}
+
+		/* Get rid of the present stdout/stderr. */
+		close(2);
+		printf("close(2)\n");
+		close(1);
+		printf("close(1)\n");
+		close(0);
+		printf("close(0)\n");
+		close(fd);
+
+		fd = open(ttypath, O_RDWR, 0);
+		if (fd < 0) {
+			printf("%s: cannot open tty: %s",
+					ttypath, strerror(errno));
+			return -1;
+		}
+		if (ioctl(fd, TIOCSCTTY, (void *)1)) {
+			printf("%s: no controlling tty: %s",
+					ttypath, strerror(errno));
+			return -1;
+		}
+		printf("hanged up\n");
+		sigaction (SIGHUP, &sa_old, NULL);
+	}
+
+	printf("calling dup\n");
+	/* Set up stdin/stdout/stderr. */
+	if (dup2(fd, 0) != 0 || dup2(fd, 1) != 1 || dup2(fd, 2) != 2) {
+		printf("%s: dup2(): %s\n", ttypath, strerror(errno));
+		return -1;
+	}
+	printf("dup'd\n");
+	if (fd > 2) {
+		close(fd);
+	}
+
+	/* Write a reset string to the terminal. This is very linux-specific
+	   and should be checked for other systems. */
+	if (clear) {
+		write(0, "\033[3;J", 5); /* clear scroll back */
+		write(0, "\033c", 2);    /* reset */
+	}
+
+	return 0;
+
+}
+
 static int spawn()
 {
 	char *args[] = { NULL, NULL };
@@ -209,8 +319,11 @@ static int spawn()
 		return 0;
 	}
 
-	setsid();
-	/* TODO open a terminal */
+	/*
+	 * XXX test hangup and VT's */
+	if (open_tty("1", 0, 0)) {
+		printf("could not open tty1, using console");
+	}
 	if (execve("/bin/bash", args, environ)) {
 		printf("exec(%s): %s\n", INIT_PROGRAM, strerror(errno));
 	}
@@ -224,6 +337,7 @@ int main()
 	setsid();
 	umask(022);
 	setenv("PATH", DEFAULT_PATH, 1);
+	setenv("TERM", "linux", 1);
 	sigsetup();
 
 	if (initialize()) {

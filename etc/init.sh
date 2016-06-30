@@ -75,8 +75,9 @@ fi
 
 # devices
 # mount dev as tmpfs?
-chown -R root:root /dev
-chown root:tty /dev/{console,ptmx,tty}
+chown -R 0:0 /dev
+chown 0:tty /dev/{ptmx,tty}
+chown 0:0 /dev/console
 
 
 # filesystems

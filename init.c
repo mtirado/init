@@ -202,7 +202,6 @@ static void wait_loop()
 /* open_tty - set up tty device as stdio
  * based on mingetty open_tty
  * TODO serial console
- * figure out why this doesn't work on 4.6  argh
  *
  */
 static int open_tty(char *tty_num, int hangup, int clear)

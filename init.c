@@ -305,7 +305,7 @@ static int open_tty(char *tty_num, int hangup, int clear)
 
 }
 
-static int spawn()
+static int spawn(char *ttynum)
 {
 	char *args[] = { NULL, NULL };
 	pid_t p;
@@ -314,17 +314,19 @@ static int spawn()
 	if (p) {
 		if (p == -1) {
 			printf("fork(): %s\n", strerror(errno));
+			return -1;
 		}
 		return 0;
 	}
 
 	/*
 	 * XXX test hangup and VT's */
-	if (open_tty("1", 0, 0)) {
+	if (open_tty(ttynum, 0, 0)) {
+		/* XXX remove this later */
 		printf("could not open tty1, using console");
 	}
 	if (execve("/bin/bash", args, environ)) {
-		printf("exec(%s): %s\n", INIT_PROGRAM, strerror(errno));
+		printf("exec(/bin/bash): %s\n", strerror(errno));
 	}
 	_exit(-1);
 }
@@ -350,7 +352,14 @@ int main()
 			wait_loop();
 		}
 	}
-	spawn();
+	if (spawn("1"))
+		printf("couldn't spawn vt1");
+	if (spawn("2"))
+		printf("couldn't spawn vt2");
+	if (spawn("3"))
+		printf("couldn't spawn vt3");
+
 	wait_loop();
 	return -1;
 }
+

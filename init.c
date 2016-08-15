@@ -1,5 +1,5 @@
 /* (c) Michael R. Tirado -- GPLv3 -- Gnu General Public License version 3
- *
+ * init.c
  */
 
 #define _GNU_SOURCE
@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/reboot.h>
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
@@ -18,29 +19,41 @@
 #include <stdlib.h>
 
 #ifndef INIT_PROGRAM
-	#define INIT_PROGRAM "/etc/init.sh"
+#define INIT_PROGRAM "/etc/init.sh"
 #endif
 #ifndef DEFAULT_PATH
-	#define DEFAULT_PATH "/sbin:/bin:/usr/sbin:/usr/bin"
+#define DEFAULT_PATH "/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin"
 #endif
 
+#ifndef CRASH_PANIC
+#define CRASH_PANIC 1 /* panic kernel if shutdown fails */
+#endif
+
+/* TODO INSTALL SHADOW! */
+#define TEST_UID 1000
+#define TEST_GID 100
 
 extern char **environ;
+extern int do_shutdown(int restart, int killall);
 sig_atomic_t g_terminating;
 
+#define TERM_SHUTDOWN 1 /* power down system */
+#define TERM_REBOOT   2 /* reboot system */
+#define TERM_KILL     3 /* kill all processes */
 static void sighand(int signum)
 {
 	switch (signum)
 	{
-		/*
 		case SIGUSR1:
+			g_terminating = TERM_SHUTDOWN;
+			break;
 		case SIGUSR2:
-			break;*/
+			g_terminating = TERM_REBOOT;
+			break;
 		case SIGTERM:
 		case SIGINT:
 		case SIGQUIT:
-			sync();
-			g_terminating = 1;
+			g_terminating = TERM_KILL;
 			break;
 		default:
 			break;
@@ -56,38 +69,54 @@ static void sigsetup()
 	sigaction(SIGTERM,  &sa, NULL);
 	sigaction(SIGQUIT,  &sa, NULL);
 	sigaction(SIGINT,   &sa, NULL);
-	/*
-	sigaction(SIGUSR1,  &sa, NULL);
-	sigaction(SIGUSR2,  &sa, NULL);*/
+	if (sigaction(SIGUSR1,  &sa, NULL))
+		printf("sigaction: %s\n", strerror(errno));
+	if (sigaction(SIGUSR2,  &sa, NULL))
+		printf("sigaction: %s\n", strerror(errno));
+}
+
+static void panic()
+{
+	/* we can panic kernel, or infinite loop
+	 * try a last ditch HALT before crashing
+	 */
+	reboot(RB_HALT_SYSTEM);
+	if (CRASH_PANIC) {
+		exit(-1);
+	}
+	else {
+		while(1)
+		{
+			usleep(1000);
+			reboot(RB_HALT_SYSTEM);
+		}
+	}
 }
 
 static void terminator()
 {
 	struct timespec request, remain;
-	int i, status;
+	int status, millisec;
 	pid_t p;
 
-	printf("propagating termination signal\n");
+	printf("init: propagating termination signal\n");
+	sync();
 	kill(-1, SIGTERM);
 
+	millisec = 10000;
 	/* give programs 10 seconds to exit */
-	for (i = 0; i < 10; ++i)
+	while (--millisec >= 0)
 	{
-		request.tv_sec  = 1;
-		request.tv_nsec = 0;
+		request.tv_sec  = 0;
+		request.tv_nsec = 1000000;
 		remain.tv_sec   = 0;
 		remain.tv_nsec  = 0;
 re_sleep:
 		errno = 0;
 		if (nanosleep(&request, &remain)) {
 			if (errno == EINTR) {
-				request.tv_sec = remain.tv_sec;
 				request.tv_nsec = remain.tv_nsec;
 				goto re_sleep;
-			}
-			else {
-				usleep(5000000);
-				break;
 			}
 		}
 re_wait:
@@ -102,7 +131,16 @@ re_wait:
 			break;
 		}
 	}
-	kill(-1, SIGKILL);
+	if (g_terminating != TERM_KILL) {
+		if (do_shutdown((g_terminating == TERM_REBOOT), 1)) {
+			panic();
+		}
+	}
+	else { /* TERM_KILL doesn't shut down system */
+		if (kill(-1, SIGKILL)) {
+			printf("kill(-1, SIGTERM): %s\n", strerror(errno));
+		}
+	}
 }
 
 /* exec initialization process and look for 0 exit status */
@@ -172,13 +210,6 @@ static int getch(char *c)
 	return 0;
 }
 
-static int system_shutdown()
-{
-	/* TODO */
-	printf ("..........\n");
-	return -1;
-}
-
 static void wait_loop()
 {
 	while (1)
@@ -193,7 +224,7 @@ static void wait_loop()
 
 		p = waitpid(-1, &status, 0);
 		if (p == -1 && errno != EINTR) {
-			usleep(1000000);
+			usleep(3000000);
 		}
 	}
 }
@@ -201,7 +232,7 @@ static void wait_loop()
 
 /* open_tty - set up tty device as stdio
  * based on mingetty open_tty
- * TODO serial console
+ * TODO test real serial console
  *
  */
 static int open_tty(char *tty_num, int hangup, int clear)
@@ -222,7 +253,7 @@ static int open_tty(char *tty_num, int hangup, int clear)
 
 	if (chown(ttypath, 0, 0) || chmod(ttypath, 0600)) {
 		if (errno != EROFS) {
-			printf("%s: chown/chmod %s ", ttypath, strerror(errno));
+			printf("%s: chown/chmod %s", ttypath, strerror(errno));
 			return -1;
 		}
 	}
@@ -253,7 +284,6 @@ static int open_tty(char *tty_num, int hangup, int clear)
 	   for sane settings. We also get a SIGHUP/SIGCONT.
 	   */
 	if (hangup) {
-		printf("calling hangup\n");
 		if (vhangup()) {
 			printf("%s: vhangup() failed\n", ttypath);
 			return -1;
@@ -279,17 +309,15 @@ static int open_tty(char *tty_num, int hangup, int clear)
 					ttypath, strerror(errno));
 			return -1;
 		}
-		printf("hanged up\n");
+		printf("hang up\n");
 		sigaction (SIGHUP, &sa_old, NULL);
 	}
 
-	printf("calling dup\n");
 	/* Set up stdin/stdout/stderr. */
 	if (dup2(fd, 0) != 0 || dup2(fd, 1) != 1 || dup2(fd, 2) != 2) {
 		printf("%s: dup2(): %s\n", ttypath, strerror(errno));
 		return -1;
 	}
-	printf("dup'd\n");
 	if (fd > 2) {
 		close(fd);
 	}
@@ -305,7 +333,26 @@ static int open_tty(char *tty_num, int hangup, int clear)
 
 }
 
-static int spawn(char *ttynum)
+static int downgrade_process(uid_t uid, gid_t gid)
+{
+	int r = 0;
+	if (gid != 0) {
+		if (setregid(gid, gid)) {
+			printf("setgid(%d): %s\n", gid, strerror(errno));
+			r = -1;
+		}
+	}
+	if (uid != 0) {
+		if (setreuid(uid, uid)) {
+			printf("setuid(%d): %s\n", uid, strerror(errno));
+			r = -1;
+		}
+	}
+	return r;
+}
+
+/* TODO: respawn */
+static int spawn(char *ttynum, uid_t uid, gid_t gid)
 {
 	char *args[] = { NULL, NULL };
 	pid_t p;
@@ -318,12 +365,15 @@ static int spawn(char *ttynum)
 		}
 		return 0;
 	}
-
 	/*
 	 * XXX test hangup and VT's */
 	if (open_tty(ttynum, 0, 0)) {
-		/* XXX remove this later */
-		printf("could not open tty1, using console");
+		/* XXX remove this later, but allow an emergency boot option */
+		printf("error: could not open tty1, using console");
+	}
+	if (downgrade_process(uid, gid)) {
+		/* emergency boot option to be enabled at compile time */
+		printf("error: could not set uid");
 	}
 	if (execve("/bin/bash", args, environ)) {
 		printf("exec(/bin/bash): %s\n", strerror(errno));
@@ -342,22 +392,26 @@ int main()
 	sigsetup();
 
 	if (initialize()) {
-		char c;
+		char c = '\0';
 		printf("\n");
-		printf("**************************************************\n");
-		printf("system initialization failed, continue? (y/n)\n");
-		printf("**************************************************\n");
+		printf("***************************************************\n");
+		printf("    system init failed, continue anyway? (y/n)\n");
+		printf("***************************************************\n");
 		if (getch(&c) || (c != 'y' && c != 'Y')) {
-			system_shutdown();
-			wait_loop();
+			if (reboot(RB_POWER_OFF)) {
+				panic();
+			}
+			_exit(-1);
 		}
 	}
-	if (spawn("1"))
-		printf("couldn't spawn vt1");
-	if (spawn("2"))
-		printf("couldn't spawn vt2");
-	if (spawn("3"))
-		printf("couldn't spawn vt3");
+	if (spawn("1", TEST_UID, TEST_GID))
+		printf("couldn't spawn tty1");
+	if (spawn("2", TEST_UID, TEST_GID))
+		printf("couldn't spawn tty2");
+	if (spawn("3", TEST_UID, TEST_GID))
+		printf("couldn't spawn tty3");
+	if (spawn("S0", 0, 0)) /* serial gets root ( ctrl-alt-2 in qemu ) */
+		printf("couldn't spawn ttyS0");
 
 	wait_loop();
 	return -1;

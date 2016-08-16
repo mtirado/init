@@ -389,6 +389,10 @@ int main()
 	umask(022);
 	setenv("PATH", DEFAULT_PATH, 1);
 	setenv("TERM", "linux", 1);
+	setenv("USER", "root", 1);
+	setenv("LOGNAME", "root", 1);
+	setenv("HOME", "/root", 1);
+	chdir("/root");
 	sigsetup();
 
 	if (initialize()) {
@@ -404,14 +408,19 @@ int main()
 			_exit(-1);
 		}
 	}
+	if (spawn("S0", 0, 0)) /* serial gets root ( ctrl-alt-2 in qemu ) */
+		printf("couldn't spawn ttyS0");
+
+	setenv("USER", "user", 1);
+	setenv("LOGNAME", "user", 1);
+	setenv("HOME", "/home/user", 1);
+	chdir("/home/user");
 	if (spawn("1", TEST_UID, TEST_GID))
 		printf("couldn't spawn tty1");
 	if (spawn("2", TEST_UID, TEST_GID))
 		printf("couldn't spawn tty2");
 	if (spawn("3", TEST_UID, TEST_GID))
 		printf("couldn't spawn tty3");
-	if (spawn("S0", 0, 0)) /* serial gets root ( ctrl-alt-2 in qemu ) */
-		printf("couldn't spawn ttyS0");
 
 	wait_loop();
 	return -1;

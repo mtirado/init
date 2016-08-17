@@ -1,7 +1,11 @@
 #!/bin/sh
 
+NETDEV=eth0
+IPADDR=10.0.2.15/24
+GATEWAY=10.0.2.2
+
 echo "***************************************************************"
-echo "***          super basic init script version 0.1            ***"
+echo "***          super basic init script version 0.1.1          ***"
 echo "***************************************************************"
 
 mount -vnt proc proc /proc
@@ -86,6 +90,12 @@ mkdir /dev/pts
 mount -vt devpts -o gid=5,mode=0620 devpts /dev/pts
 
 #sysv shm
+echo "set ip address: $IPADDR"
+ip addr add $IPADDR dev eth0
+echo "bringing up $NETDEV"
+ip link set dev $NETDEV up
+echo "set gateway: $GATEWAY"
+ip route add default via $GATEWAY
 
 exit 0
 

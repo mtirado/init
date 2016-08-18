@@ -388,7 +388,7 @@ int main()
 	setsid();
 	umask(022);
 	setenv("PATH", DEFAULT_PATH, 1);
-	setenv("TERM", "linux", 1);
+	setenv("TERM", "dumb", 1);
 	setenv("USER", "root", 1);
 	setenv("LOGNAME", "root", 1);
 	setenv("HOME", "/root", 1);
@@ -411,6 +411,7 @@ int main()
 	if (spawn("S0", 0, 0)) /* serial gets root ( ctrl-alt-2 in qemu ) */
 		printf("couldn't spawn ttyS0");
 
+	setenv("TERM", "linux", 1);
 	setenv("USER", "user", 1);
 	setenv("LOGNAME", "user", 1);
 	setenv("HOME", "/home/user", 1);

@@ -352,10 +352,13 @@ static int downgrade_process(uid_t uid, gid_t gid)
 }
 
 /* TODO: respawn */
-static int spawn(char *ttynum, uid_t uid, gid_t gid)
+static int spawn(char *ttynum, char *prog,  uid_t uid, gid_t gid)
 {
 	char *args[] = { NULL, NULL };
 	pid_t p;
+
+	if (!ttynum || !prog)
+		return -1;
 
 	p = fork();
 	if (p) {
@@ -375,8 +378,8 @@ static int spawn(char *ttynum, uid_t uid, gid_t gid)
 		/* emergency boot option to be enabled at compile time */
 		printf("error: could not set uid");
 	}
-	if (execve("/bin/bash", args, environ)) {
-		printf("exec(/bin/bash): %s\n", strerror(errno));
+	if (execve(prog, args, environ)) {
+		printf("exec(%s): %s\n", prog, strerror(errno));
 	}
 	_exit(-1);
 }
@@ -408,21 +411,23 @@ int main()
 			_exit(-1);
 		}
 	}
-	if (spawn("S0", 0, 0)) /* serial gets root ( ctrl-alt-2 in qemu ) */
+	if (spawn("S0", "/bin/bash", 0, 0)) /* serial root ( ctrl-alt-2 in qemu ) */
 		printf("couldn't spawn ttyS0");
 
+	/* root shells */
 	setenv("TERM", "linux", 1);
+	if (spawn("1", "/usr/bin/gtscreen", 0, 0))
+		printf("couldn't spawn tty1");
+	if (spawn("2", "/bin/bash",  0, 0))
+		printf("couldn't spawn tty3");
+
+	/* spawn user shell */
 	setenv("USER", "user", 1);
 	setenv("LOGNAME", "user", 1);
 	setenv("HOME", "/home/user", 1);
 	chdir("/home/user");
-	if (spawn("1", TEST_UID, TEST_GID))
-		printf("couldn't spawn tty1");
-	if (spawn("2", TEST_UID, TEST_GID))
-		printf("couldn't spawn tty2");
-	if (spawn("3", TEST_UID, TEST_GID))
+	if (spawn("3", "/bin/bash", TEST_UID, TEST_GID))
 		printf("couldn't spawn tty3");
-
 	wait_loop();
 	return -1;
 }

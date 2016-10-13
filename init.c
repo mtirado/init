@@ -352,9 +352,8 @@ static int downgrade_process(uid_t uid, gid_t gid)
 }
 
 /* TODO: respawn */
-static int spawn(char *ttynum, char *prog,  uid_t uid, gid_t gid)
+static int spawn(char *ttynum, char *prog, char **args,  uid_t uid, gid_t gid)
 {
-	char *args[] = { NULL, NULL };
 	pid_t p;
 
 	if (!ttynum || !prog)
@@ -370,7 +369,7 @@ static int spawn(char *ttynum, char *prog,  uid_t uid, gid_t gid)
 	}
 	/*
 	 * XXX test hangup and VT's */
-	if (open_tty(ttynum, 0, 0)) {
+	if (open_tty(ttynum, 1, 1)) {
 		/* XXX remove this later, but allow an emergency boot option */
 		printf("error: could not open tty1, using console");
 	}
@@ -386,6 +385,7 @@ static int spawn(char *ttynum, char *prog,  uid_t uid, gid_t gid)
 
 int main()
 {
+	char *args[3] = {NULL, NULL, NULL};
 	g_terminating = 0;
 
 	setsid();
@@ -398,6 +398,7 @@ int main()
 	chdir("/root");
 	sigsetup();
 
+	/* TODO fsck broken as fsck */
 	if (initialize()) {
 		char c = '\0';
 		printf("\n");
@@ -411,22 +412,25 @@ int main()
 			_exit(-1);
 		}
 	}
-	if (spawn("S0", "/bin/bash", 0, 0)) /* serial root ( ctrl-alt-2 in qemu ) */
+	if (spawn("S0", "/bin/bash", args, 0, 0)) /* serial root ( ctrl-alt-2 in qemu ) */
 		printf("couldn't spawn ttyS0");
 
 	/* root shells */
 	setenv("TERM", "linux", 1);
-	if (spawn("1", "/usr/bin/gtscreen", 0, 0))
+	if (spawn("1", "/usr/bin/gtscreen", args, 0, 0))
 		printf("couldn't spawn tty1");
-	if (spawn("2", "/bin/bash",  0, 0))
-		printf("couldn't spawn tty3");
+	if (spawn("2", "/bin/bash", args, TEST_UID, TEST_GID))
+		printf("couldn't spawn tty2");
 
 	/* spawn user shell */
 	setenv("USER", "user", 1);
 	setenv("LOGNAME", "user", 1);
 	setenv("HOME", "/home/user", 1);
 	chdir("/home/user");
-	if (spawn("3", "/bin/bash", TEST_UID, TEST_GID))
+	args[0] = "spr16_example";
+	args[1] = "tty1";
+	args[2] = NULL;
+	if (spawn("3", "/usr/bin/spr16_example", args, TEST_UID, TEST_GID))
 		printf("couldn't spawn tty3");
 	wait_loop();
 	return -1;

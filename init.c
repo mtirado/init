@@ -410,7 +410,6 @@ static void respawn(struct persistent *persist)
 {
 	pid_t p;
 	if (persist->respawn == 0 || persist->respawn < -1) {
-		printf("respawns depleted\n");
 		memset(persist, 0, sizeof(struct persistent));
 		return;
 	}
@@ -525,7 +524,7 @@ int main()
 	snprintf(persist[0].path, PS_PATHLEN, "/usr/bin/spr16_example");
 	snprintf(persist[0].args[0], PS_PATHLEN, args[0]);
 	snprintf(persist[0].args[1], PS_PATHLEN, args[1]);
-	persist[0].respawn = -1;
+	persist[0].respawn = 4;
 	persist[0].uid = TEST_UID;
 	persist[0].gid = TEST_GID;
 	persistent_initargs(&persist[0]);

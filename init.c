@@ -33,6 +33,37 @@
 #define TEST_UID 1000
 #define TEST_GID 100
 
+#ifndef PS_COUNT
+#define PS_COUNT 4
+#endif
+#ifndef PS_PATHLEN
+#define PS_PATHLEN 128
+#endif
+#ifndef PS_TTYLEN
+#define PS_TTYLEN 5
+#endif
+#ifndef PS_NAMELEN
+#define PS_NAMELEN 16
+#endif
+#ifndef PS_ARGLEN
+#define PS_ARGLEN 128
+#endif
+#ifndef PS_ARGCOUNT
+#define PS_ARGCOUNT 3
+#endif
+
+struct persistent {
+	char name[PS_NAMELEN];
+	char path[PS_PATHLEN];
+	char args[PS_ARGLEN][PS_ARGCOUNT];
+	char *argv[PS_ARGCOUNT+1];
+	char ttynum[PS_TTYLEN];
+	pid_t pid;
+	uid_t uid;
+	gid_t gid;
+	off_t respawn; /* -1 for unlimited respawns */
+};
+
 extern char **environ;
 extern int do_shutdown(int restart, int killall);
 sig_atomic_t g_terminating;
@@ -210,26 +241,6 @@ static int getch(char *c)
 	return 0;
 }
 
-static void wait_loop()
-{
-	while (1)
-	{
-		pid_t p;
-		int status;
-
-		if (g_terminating) {
-			terminator();
-			g_terminating = 0;
-		}
-
-		p = waitpid(-1, &status, 0);
-		if (p == -1 && errno != EINTR) {
-			usleep(3000000);
-		}
-	}
-}
-
-
 /* open_tty - set up tty device as stdio
  * based on mingetty open_tty
  * TODO test real serial console
@@ -253,7 +264,7 @@ static int open_tty(char *tty_num, int hangup, int clear)
 
 	if (chown(ttypath, 0, 0) || chmod(ttypath, 0600)) {
 		if (errno != EROFS) {
-			printf("%s: chown/chmod %s", ttypath, strerror(errno));
+			printf("%s: chown/chmod %s\n", ttypath, strerror(errno));
 			return -1;
 		}
 	}
@@ -300,12 +311,12 @@ static int open_tty(char *tty_num, int hangup, int clear)
 
 		fd = open(ttypath, O_RDWR, 0);
 		if (fd < 0) {
-			printf("%s: cannot open tty: %s",
+			printf("%s: cannot open tty: %s\n",
 					ttypath, strerror(errno));
 			return -1;
 		}
 		if (ioctl(fd, TIOCSCTTY, (void *)1)) {
-			printf("%s: no controlling tty: %s",
+			printf("%s: no controlling tty: %s\n",
 					ttypath, strerror(errno));
 			return -1;
 		}
@@ -350,9 +361,7 @@ static int downgrade_process(uid_t uid, gid_t gid)
 	}
 	return r;
 }
-
-/* TODO: respawn */
-static int spawn(char *ttynum, char *prog, char **args,  uid_t uid, gid_t gid)
+static pid_t spawn(char *ttynum, char *prog, char **args,  uid_t uid, gid_t gid)
 {
 	pid_t p;
 
@@ -365,17 +374,20 @@ static int spawn(char *ttynum, char *prog, char **args,  uid_t uid, gid_t gid)
 			printf("fork(): %s\n", strerror(errno));
 			return -1;
 		}
-		return 0;
+		return p; /* TODO things could go wrong, we should have a way
+			     to rate limit or clear frequent respawns */
 	}
+
 	/*
-	 * XXX test hangup and VT's */
-	if (open_tty(ttynum, 1, 1)) {
-		/* XXX remove this later, but allow an emergency boot option */
-		printf("error: could not open tty1, using console");
+	 * TODO test hangup and clear on VT's
+	 * and add emergency shell (compile time) option. */
+	if (open_tty(ttynum, 1, 0)) {
+		printf("error: could not open tty%s\n", ttynum);
+		_exit(-1);
 	}
 	if (downgrade_process(uid, gid)) {
-		/* emergency boot option to be enabled at compile time */
-		printf("error: could not set uid");
+		_exit(-1);
+		printf("error: could not set uid\n");
 	}
 	if (execve(prog, args, environ)) {
 		printf("exec(%s): %s\n", prog, strerror(errno));
@@ -383,11 +395,88 @@ static int spawn(char *ttynum, char *prog, char **args,  uid_t uid, gid_t gid)
 	_exit(-1);
 }
 
+static void persistent_initargs(struct persistent *persist)
+{
+	int i;
+	for (i = 0; i < PS_ARGCOUNT; ++i)
+	{
+		persist->argv[i] = persist->args[i];
+	}
+	persist->argv[PS_ARGCOUNT] = NULL;
+}
+
+/* TODO rate limit?  output should go to syslog! */
+static void respawn(struct persistent *persist)
+{
+	pid_t p;
+	if (persist->respawn == 0 || persist->respawn < -1) {
+		printf("respawns depleted\n");
+		memset(persist, 0, sizeof(struct persistent));
+		return;
+	}
+
+	p =  spawn(persist->ttynum,
+		   persist->path,
+		   persist->argv,
+		   persist->uid,
+		   persist->gid);
+	if (p == -1) {
+		printf("respawn error: %s\n", strerror(errno));
+		memset(persist, 0, sizeof(struct persistent));
+		return;
+	}
+	persist->pid = p;
+	if (persist->respawn > 0)
+		--persist->respawn;
+	return;
+}
+
+static void post_exec(struct persistent *persist, pid_t p)
+{
+	int i;
+	for (i = 0; i < PS_COUNT; ++i)
+	{
+		if (persist[i].pid == p)
+		{
+			respawn(&persist[i]);
+			return;
+		}
+	}
+}
+
+static void wait_loop(struct persistent *persist)
+{
+	while (1)
+	{
+		pid_t p;
+		int status;
+
+		if (g_terminating) {
+			terminator();
+			g_terminating = 0;
+		}
+
+		p = waitpid(-1, &status, 0);
+		if (p == -1 && errno != EINTR) {
+			usleep(3000000);
+		}
+		else if (p) {
+			post_exec(persist, p);
+		}
+	}
+}
+
+
+
+
 int main()
 {
+	struct persistent persist[PS_COUNT];
 	char *args[3] = {NULL, NULL, NULL};
-	g_terminating = 0;
+	pid_t p;
 
+	g_terminating = 0;
+	memset(&persist, 0, sizeof(persist));
 	setsid();
 	umask(022);
 	setenv("PATH", DEFAULT_PATH, 1);
@@ -412,15 +501,16 @@ int main()
 			_exit(-1);
 		}
 	}
-	if (spawn("S0", "/bin/bash", args, 0, 0)) /* serial root ( ctrl-alt-2 in qemu ) */
-		printf("couldn't spawn ttyS0");
+	/* serial root ( ctrl-alt-2 in qemu ) */
+	if (spawn("S0", "/bin/bash", args, 0, 0) == -1)
+		printf("couldn't spawn ttyS0\n");
 
 	/* root shells */
 	setenv("TERM", "linux", 1);
-	if (spawn("1", "/usr/bin/gtscreen", args, 0, 0))
-		printf("couldn't spawn tty1");
-	if (spawn("2", "/bin/bash", args, TEST_UID, TEST_GID))
-		printf("couldn't spawn tty2");
+	if (spawn("1", "/usr/bin/gtscreen", args, 0, 0) == -1)
+		printf("couldn't spawn tty1\n");
+	if (spawn("2", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+		printf("couldn't spawn tty2\n");
 
 	/* spawn user shell */
 	setenv("USER", "user", 1);
@@ -430,9 +520,22 @@ int main()
 	args[0] = "spr16_example";
 	args[1] = "tty1";
 	args[2] = NULL;
-	if (spawn("3", "/usr/bin/spr16_example", args, TEST_UID, TEST_GID))
-		printf("couldn't spawn tty3");
-	wait_loop();
+	snprintf(persist[0].ttynum, PS_TTYLEN, "3");
+	snprintf(persist[0].name, PS_NAMELEN, "spr16_example");
+	snprintf(persist[0].path, PS_PATHLEN, "/usr/bin/spr16_example");
+	snprintf(persist[0].args[0], PS_PATHLEN, args[0]);
+	snprintf(persist[0].args[1], PS_PATHLEN, args[1]);
+	persist[0].respawn = -1;
+	persist[0].uid = TEST_UID;
+	persist[0].gid = TEST_GID;
+	persistent_initargs(&persist[0]);
+	p = spawn("3", "/usr/bin/spr16_example", args, TEST_UID, TEST_GID);
+	if (p == -1) {
+		printf("couldn't spawn tty3\n");
+	}
+	persist[0].pid = p;
+
+	wait_loop(persist);
 	return -1;
 }
 

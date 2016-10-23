@@ -508,14 +508,15 @@ int main()
 	setenv("TERM", "linux", 1);
 	if (spawn("1", "/usr/bin/gtscreen", args, 0, 0) == -1)
 		printf("couldn't spawn tty1\n");
-	if (spawn("2", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
-		printf("couldn't spawn tty2\n");
 
 	/* spawn user shell */
 	setenv("USER", "user", 1);
 	setenv("LOGNAME", "user", 1);
 	setenv("HOME", "/home/user", 1);
 	chdir("/home/user");
+	if (spawn("2", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+		printf("couldn't spawn tty2\n");
+
 	args[0] = "spr16_example";
 	args[1] = "tty1";
 	args[2] = NULL;

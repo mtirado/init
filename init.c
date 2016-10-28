@@ -26,7 +26,7 @@
 #endif
 
 #ifndef CRASH_PANIC
-#define CRASH_PANIC 1 /* panic kernel if shutdown fails */
+#define CRASH_PANIC 0 /* exit pid1 on panic? */
 #endif
 
 /* TODO INSTALL SHADOW! */
@@ -65,12 +65,14 @@ struct persistent {
 };
 
 extern char **environ;
-extern int do_shutdown(int restart, int killall);
+extern int do_shutdown(unsigned int rb_action, int killall);
+extern void shutdown_fallback(unsigned int rb_action);
 sig_atomic_t g_terminating;
 
-#define TERM_SHUTDOWN 1 /* power down system */
-#define TERM_REBOOT   2 /* reboot system */
-#define TERM_KILL     3 /* kill all processes */
+#define TERM_SHUTDOWN 1
+#define TERM_REBOOT   2
+#define TERM_HALT     3
+
 static void sighand(int signum)
 {
 	switch (signum)
@@ -81,10 +83,11 @@ static void sighand(int signum)
 		case SIGUSR2:
 			g_terminating = TERM_REBOOT;
 			break;
-		case SIGTERM:
 		case SIGINT:
+		case SIGHUP:
+		case SIGTERM:
 		case SIGQUIT:
-			g_terminating = TERM_KILL;
+			g_terminating = TERM_HALT;
 			break;
 		default:
 			break;
@@ -100,6 +103,7 @@ static void sigsetup()
 	sigaction(SIGTERM,  &sa, NULL);
 	sigaction(SIGQUIT,  &sa, NULL);
 	sigaction(SIGINT,   &sa, NULL);
+	sigaction(SIGHUP,   &sa, NULL);
 	if (sigaction(SIGUSR1,  &sa, NULL))
 		printf("sigaction: %s\n", strerror(errno));
 	if (sigaction(SIGUSR2,  &sa, NULL))
@@ -108,18 +112,16 @@ static void sigsetup()
 
 static void panic()
 {
-	/* we can panic kernel, or infinite loop
-	 * try a last ditch HALT before crashing
-	 */
-	reboot(RB_HALT_SYSTEM);
+	/* we can panic kernel, or infinite loop */
 	if (CRASH_PANIC) {
 		exit(-1);
 	}
 	else {
 		while(1)
 		{
-			usleep(1000);
 			reboot(RB_HALT_SYSTEM);
+			kill(-1, SIGKILL);
+			usleep(1000);
 		}
 	}
 }
@@ -128,6 +130,7 @@ static void terminator()
 {
 	struct timespec request, remain;
 	int status, millisec;
+	unsigned int rb_action = RB_POWER_OFF;
 	pid_t p;
 
 	printf("init: propagating termination signal\n");
@@ -162,16 +165,16 @@ re_wait:
 			break;
 		}
 	}
-	if (g_terminating != TERM_KILL) {
-		if (do_shutdown((g_terminating == TERM_REBOOT), 1)) {
-			panic();
-		}
-	}
-	else { /* TERM_KILL doesn't shut down system */
-		if (kill(-1, SIGKILL)) {
-			printf("kill(-1, SIGTERM): %s\n", strerror(errno));
-		}
-	}
+
+	if (g_terminating == TERM_REBOOT)
+		rb_action = RB_AUTOBOOT;
+	else if (g_terminating == TERM_SHUTDOWN)
+		rb_action = RB_POWER_OFF;
+	else if (g_terminating == TERM_HALT)
+		rb_action = RB_HALT_SYSTEM;
+
+	do_shutdown(rb_action, 1);
+	panic();
 }
 
 /* exec initialization process and look for 0 exit status */
@@ -344,6 +347,7 @@ static int open_tty(char *tty_num, int hangup, int clear)
 
 }
 
+/* TODO capability bounding set from whitelist /etc/file */
 static int downgrade_process(uid_t uid, gid_t gid)
 {
 	int r = 0;
@@ -395,7 +399,7 @@ static pid_t spawn(char *ttynum, char *prog, char **args,  uid_t uid, gid_t gid)
 	_exit(-1);
 }
 
-static void persistent_initargs(struct persistent *persist)
+/*static void persistent_initargs(struct persistent *persist)
 {
 	int i;
 	for (i = 0; i < PS_ARGCOUNT; ++i)
@@ -403,7 +407,7 @@ static void persistent_initargs(struct persistent *persist)
 		persist->argv[i] = persist->args[i];
 	}
 	persist->argv[PS_ARGCOUNT] = NULL;
-}
+}*/
 
 /* TODO rate limit?  output should go to syslog! */
 static void respawn(struct persistent *persist)
@@ -472,7 +476,7 @@ int main()
 {
 	struct persistent persist[PS_COUNT];
 	char *args[3] = {NULL, NULL, NULL};
-	pid_t p;
+	/*pid_t p;*/
 
 	g_terminating = 0;
 	memset(&persist, 0, sizeof(persist));
@@ -486,7 +490,6 @@ int main()
 	chdir("/root");
 	sigsetup();
 
-	/* TODO fsck broken as fsck */
 	if (initialize()) {
 		char c = '\0';
 		printf("\n");
@@ -494,9 +497,8 @@ int main()
 		printf("    system init failed, continue anyway? (y/n)\n");
 		printf("***************************************************\n");
 		if (getch(&c) || (c != 'y' && c != 'Y')) {
-			if (reboot(RB_POWER_OFF)) {
-				panic();
-			}
+			reboot(RB_POWER_OFF);
+			panic();
 			_exit(-1);
 		}
 	}
@@ -516,8 +518,14 @@ int main()
 	chdir("/home/user");
 	if (spawn("2", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
 		printf("couldn't spawn tty2\n");
+	if (spawn("3", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+		printf("couldn't spawn tty2\n");
+	if (spawn("4", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+		printf("couldn't spawn tty2\n");
+	if (spawn("5", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+		printf("couldn't spawn tty2\n");
 
-	args[0] = "spr16_example";
+/*	args[0] = "spr16_example";
 	args[1] = "tty1";
 	args[2] = NULL;
 	snprintf(persist[0].ttynum, PS_TTYLEN, "3");
@@ -534,7 +542,7 @@ int main()
 		printf("couldn't spawn tty3\n");
 	}
 	persist[0].pid = p;
-
+*/
 	wait_loop(persist);
 	return -1;
 }

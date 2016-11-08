@@ -106,6 +106,10 @@ ip route add default via $GATEWAY
 if [ $? -ne 0 ]; then
 	echo "firewall script failed! <-------------"
 fi
+
+#restore alsa settings
+alsactl restore
+
 exit 0
 
 

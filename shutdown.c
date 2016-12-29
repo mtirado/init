@@ -18,6 +18,8 @@
 #include <sys/wait.h>
 #include <signal.h>
 
+#include <linux/reboot.h>
+#include <syscall.h>
 
 #ifndef SHUTDOWN_PROGRAM
 #define SHUTDOWN_PROGRAM "/etc/shutdown.sh"
@@ -40,6 +42,16 @@
 #ifndef FALLBACK_WAITSYNC
 #define FALLBACK_WAITSYNC 8
 #endif
+
+int call_reboot(unsigned int rb_action)
+{
+	return syscall( SYS_reboot,
+			LINUX_REBOOT_MAGIC1,
+			LINUX_REBOOT_MAGIC2,
+			rb_action,
+			NULL);
+}
+
 int do_shutdown(unsigned int rb_action, int killall)
 {
 	int slice;
@@ -122,17 +134,17 @@ re_sleep:
 	}
 
 	if (rb_action == RB_AUTOBOOT) {
-		if (reboot(RB_AUTOBOOT)) {
+		if (call_reboot(RB_AUTOBOOT)) {
 			printf("reboot: %s\n", strerror(errno));
 		}
 	}
 	else if (rb_action == RB_HALT_SYSTEM) {
-		if (reboot(RB_HALT_SYSTEM)) {
+		if (call_reboot(RB_HALT_SYSTEM)) {
 			printf("halt: %s\n", strerror(errno));
 		}
 	}
 	else {
-		if (reboot(RB_POWER_OFF)) {
+		if (call_reboot(RB_POWER_OFF)) {
 			printf("shutdown: %s\n", strerror(errno));
 		}
 	}
@@ -175,17 +187,17 @@ re_sleep:
 	}
 
 	if (rb_action == RB_AUTOBOOT) {
-		if (reboot(RB_AUTOBOOT)) {
+		if (call_reboot(RB_AUTOBOOT)) {
 			printf("reboot: %s\n", strerror(errno));
 		}
 	}
 	else if (rb_action == RB_HALT_SYSTEM) {
-		if (reboot(RB_HALT_SYSTEM)) {
+		if (call_reboot(RB_HALT_SYSTEM)) {
 			printf("halt: %s\n", strerror(errno));
 		}
 	}
 	else {
-		if (reboot(RB_POWER_OFF)) {
+		if (call_reboot(RB_POWER_OFF)) {
 			printf("shutdown: %s\n", strerror(errno));
 		}
 	}
@@ -287,7 +299,7 @@ int main(int argc, char **argv)
 		rb_action = RB_HALT_SYSTEM;
 	}
 	if (immediate) {
-		if (reboot(rb_action)) {
+		if (call_reboot(rb_action)) {
 			printf("reboot: %s\n", strerror(errno));
 		}
 		_exit(-1);

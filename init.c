@@ -65,6 +65,7 @@ struct persistent {
 };
 
 extern char **environ;
+extern int call_reboot(unsigned int rb_action);
 extern int do_shutdown(unsigned int rb_action, int killall);
 extern void shutdown_fallback(unsigned int rb_action);
 sig_atomic_t g_terminating;
@@ -119,7 +120,7 @@ static void panic()
 	else {
 		while(1)
 		{
-			reboot(RB_HALT_SYSTEM);
+			call_reboot(RB_HALT_SYSTEM);
 			kill(-1, SIGKILL);
 			usleep(1000);
 		}
@@ -490,6 +491,9 @@ int main()
 	chdir("/root");
 	sigsetup();
 
+	/* disable ctrl-alt-delete hair trigger reboot */
+	call_reboot(RB_DISABLE_CAD);
+
 	if (initialize()) {
 		char c = '\0';
 		printf("\n");
@@ -497,7 +501,7 @@ int main()
 		printf("    system init failed, continue anyway? (y/n)\n");
 		printf("***************************************************\n");
 		if (getch(&c) || (c != 'y' && c != 'Y')) {
-			reboot(RB_POWER_OFF);
+			call_reboot(RB_POWER_OFF);
 			panic();
 			_exit(-1);
 		}

@@ -174,7 +174,9 @@ re_wait:
 	else if (g_terminating == TERM_HALT)
 		rb_action = RB_HALT_SYSTEM;
 
-	do_shutdown(rb_action, 1);
+	if (do_shutdown(rb_action, 1)) {
+		shutdown_fallback(rb_action);
+	}
 	panic();
 }
 
@@ -264,13 +266,11 @@ static int open_tty(char *tty_num, int hangup, int clear)
 	}
 
 	snprintf(ttypath, sizeof(ttypath), "/dev/tty%s", tty_num);
-	printf("ttypath: %s\n", ttypath);
-
 	if (chown(ttypath, 0, 0) || chmod(ttypath, 0600)) {
-		if (errno != EROFS) {
+		/*if (errno != EROFS) { this seems slightly risky */
 			printf("%s: chown/chmod %s\n", ttypath, strerror(errno));
 			return -1;
-		}
+		/*}*/
 	}
 
 	sa.sa_handler = SIG_IGN;

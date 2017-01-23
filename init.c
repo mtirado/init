@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/reboot.h>
+#include <sys/mount.h>
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
@@ -65,6 +66,10 @@ struct persistent {
 };
 
 extern char **environ;
+
+extern char *get_cmdline(const char *param, unsigned int *out_len);
+extern char get_modman_mode();
+
 extern int call_reboot(unsigned int rb_action);
 extern int do_shutdown(unsigned int rb_action, int killall);
 extern void shutdown_fallback(unsigned int rb_action);
@@ -189,6 +194,19 @@ int initialize()
 	p = fork();
 	if (p == 0) {
 		char *args[] = { NULL, NULL };
+
+		/* load modules */
+		mkdir("/sys", 0700);
+		if (mount(NULL, "/sys", "sysfs", MS_NODEV|MS_NOEXEC, NULL)) {
+			printf("unable to mount sysfs\n");
+		}
+		switch (get_modman_mode())
+		{
+			case 'a': system("/sbin/modman.sh -a"); break;
+			case 'w': system("/sbin/modman.sh -w"); break;
+			case 'i': system("/sbin/modman.sh -i"); break;
+			default: return -1;
+		}
 		if (execve(INIT_PROGRAM, args, environ)) {
 			printf("exec(%s): %s\n", INIT_PROGRAM,strerror(errno));
 		}
@@ -470,9 +488,6 @@ static void wait_loop(struct persistent *persist)
 	}
 }
 
-
-
-
 int main()
 {
 	struct persistent persist[PS_COUNT];
@@ -507,12 +522,12 @@ int main()
 		}
 	}
 	/* serial root ( ctrl-alt-2 in qemu ) */
-	if (spawn("S0", "/bin/bash", args, 0, 0) == -1)
-		printf("couldn't spawn ttyS0\n");
+	/*if (spawn("S0", "/bin/sh", args, 0, 0) == -1)
+		printf("couldn't spawn ttyS0\n");*/
 
 	/* root shells */
 	setenv("TERM", "linux", 1);
-	if (spawn("1", "/usr/bin/gtscreen", args, 0, 0) == -1)
+	if (spawn("1", "/bin/sh", args, 0, 0) == -1)
 		printf("couldn't spawn tty1\n");
 
 	/* spawn user shell */
@@ -520,13 +535,13 @@ int main()
 	setenv("LOGNAME", "user", 1);
 	setenv("HOME", "/home/user", 1);
 	chdir("/home/user");
-	if (spawn("2", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+	if (spawn("2", "/bin/sh", args, TEST_UID, TEST_GID) == -1)
 		printf("couldn't spawn tty2\n");
-	if (spawn("3", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+	if (spawn("3", "/bin/sh", args, TEST_UID, TEST_GID) == -1)
 		printf("couldn't spawn tty2\n");
-	if (spawn("4", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+	if (spawn("4", "/bin/sh", args, TEST_UID, TEST_GID) == -1)
 		printf("couldn't spawn tty2\n");
-	if (spawn("5", "/bin/bash", args, TEST_UID, TEST_GID) == -1)
+	if (spawn("5", "/bin/sh", args, TEST_UID, TEST_GID) == -1)
 		printf("couldn't spawn tty2\n");
 
 /*	args[0] = "spr16_example";

@@ -15,17 +15,23 @@ DEFLANG := -ansi
 # objects
 #########################################
 INIT_SRCS := 	./init.c		\
+		./cmdline.c		\
 		./shutdown.nomain.c
 INIT_OBJS := $(INIT_SRCS:.c=.o)
+
 SHUTDOWN_SRCS := ./shutdown.c
 SHUTDOWN_OBJS := $(SHUTDOWN_SRCS:.c=.o)
+
+INITRAM_SRCS := ./initram.c ./cmdline.c
+INITRAM_OBJS := $(INITRAM_SRCS:.c=.o)
 
 
 ########################################
 # target files
 ########################################
-INIT := init
+INIT     := init
 SHUTDOWN := shutdown
+INITRAM  := initram
 
 
 ########################################
@@ -39,7 +45,8 @@ SHUTDOWN := shutdown
 
 all:						\
 	$(SHUTDOWN)				\
-	$(INIT)
+	$(INIT)					\
+	$(INITRAM)
 
 
 ########################################
@@ -52,6 +59,15 @@ $(INIT):		$(INIT_OBJS)
 			@echo "| init            OK |"
 			@echo "x--------------------x"
 			@echo ""
+
+$(INITRAM):		$(INITRAM_OBJS)
+			$(CC) $(LDFLAGS) $(INITRAM_OBJS) -o $@
+			@echo ""
+			@echo "x--------------------x"
+			@echo "| initram         OK |"
+			@echo "x--------------------x"
+			@echo ""
+
 $(SHUTDOWN):		$(SHUTDOWN_OBJS)
 			$(CC) $(LDFLAGS) $(SHUTDOWN_OBJS) -o $@
 			@echo ""
@@ -64,8 +80,10 @@ $(SHUTDOWN):		$(SHUTDOWN_OBJS)
 clean:
 	@$(foreach obj, $(INIT_OBJS), rm -fv $(obj);)
 	@$(foreach obj, $(SHUTDOWN), rm -fv $(obj);)
+	@$(foreach obj, $(INITRAM_OBJS), rm -fv $(obj);)
 
 	@-rm -fv ./$(INIT)
 	@-rm -fv ./$(SHUTDOWN)
+	@-rm -fv ./$(INITRAM)
 	@echo "cleaned."
 

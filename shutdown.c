@@ -214,12 +214,12 @@ static int request_shutdown(unsigned int rb_action)
 		}
 	} /* halt */
 	else if (rb_action == RB_HALT_SYSTEM) {
-		if (kill(1, SIGHUP) == 0) {
+		if (kill(1, SIGUSR1) == 0) {
 			return 0;
 		}
 	} /* poweroff */
 	else {
-		if (kill(1, SIGUSR1) == 0) {
+		if (kill(1, SIGHUP) == 0) {
 			return 0;
 		}
 	}

@@ -79,7 +79,7 @@ char get_modman_mode()
 
 	param_str = get_cmdline(find_param, &cmdlen);
 	if (param_str == NULL) {
-		return 'a';
+		return 'n';
 	}
 
 	/* expects a single byte (where null terminator is in find_param) */

@@ -84,7 +84,7 @@ static void sighand(int signum)
 	switch (signum)
 	{
 		case SIGUSR1:
-			g_terminating = TERM_SHUTDOWN;
+			g_terminating = TERM_HALT;
 			break;
 		case SIGUSR2:
 			g_terminating = TERM_REBOOT;
@@ -93,7 +93,7 @@ static void sighand(int signum)
 		case SIGHUP:
 		case SIGTERM:
 		case SIGQUIT:
-			g_terminating = TERM_HALT;
+			g_terminating = TERM_SHUTDOWN;
 			break;
 		default:
 			break;
@@ -189,26 +189,33 @@ re_wait:
 int initialize()
 {
 	int status;
+	char modmode = 'n';
 	pid_t p;
 
 	p = fork();
 	if (p == 0) {
 		char *args[] = { NULL, NULL };
 
-		/* load modules */
 		mkdir("/sys", 0700);
-		if (mount(NULL, "/sys", "sysfs", MS_NODEV|MS_NOEXEC, NULL)) {
-			printf("unable to mount sysfs\n");
-		}
-		switch (get_modman_mode())
-		{
-			case 'a': system("/sbin/modman.sh -a"); break;
-			case 'w': system("/sbin/modman.sh -w"); break;
-			case 'i': system("/sbin/modman.sh -i"); break;
-			default: return -1;
+		chmod("/sys", 0700);
+
+		/* load modules */
+		modmode = get_modman_mode();
+		if (modmode != 'n') {
+			if (mount(0, "/sys", "sysfs", MS_NODEV|MS_NOSUID|MS_NOEXEC, 0)) {
+				printf("unable to mount /sys\n");
+			}
+			switch (modmode)
+			{
+				case 'a': system("/sbin/modman.sh -a"); break;
+				case 'w': system("/sbin/modman.sh -w"); break;
+				case 'i': system("/sbin/modman.sh -i"); break;
+				case 'n': break;
+				default: return -1;
+			}
 		}
 		if (execve(INIT_PROGRAM, args, environ)) {
-			printf("exec(%s): %s\n", INIT_PROGRAM,strerror(errno));
+			printf("exec(%s): %s\n", INIT_PROGRAM, strerror(errno));
 		}
 		return -1;
 	}

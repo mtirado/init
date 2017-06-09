@@ -709,7 +709,7 @@ static int file_write(int fd, char *buf, size_t size)
 		if (r <= 0) {
 			if (r == -1 && errno == EINTR) {
 				continue;
- 			}
+			}
 			printf("write: %s\n", strerror(errno));
 			return -1;
 		}

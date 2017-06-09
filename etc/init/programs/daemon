@@ -1,0 +1,6 @@
+uid 666
+gid 0
+respawn 9
+workdir /home/daemon
+cmdline /bin/testdaemon sleep
+environ PATH=/bin:/usr/bin TERM=void USER=daemon LOGNAME=daemon HOME=/home/daemon

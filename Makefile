@@ -16,6 +16,7 @@ DEFLANG := -ansi
 #########################################
 INIT_SRCS := 	./init.c		\
 		./cmdline.c		\
+		./program.c		\
 		./shutdown.nomain.c
 INIT_OBJS := $(INIT_SRCS:.c=.o)
 
@@ -25,13 +26,16 @@ SHUTDOWN_OBJS := $(SHUTDOWN_SRCS:.c=.o)
 INITRAM_SRCS := ./initram.c ./cmdline.c
 INITRAM_OBJS := $(INITRAM_SRCS:.c=.o)
 
+TESTDAEMON_SRCS := ./testdaemon.c
+TESTDAEMON_OBJS := $(TESTDAEMON_SRCS:.c=.o)
 
 ########################################
 # target files
 ########################################
-INIT     := init
-SHUTDOWN := shutdown
-INITRAM  := initram
+INIT        := init
+SHUTDOWN    := shutdown
+INITRAM     := initram
+TESTDAEMON  := testdaemon
 
 
 ########################################
@@ -46,7 +50,8 @@ INITRAM  := initram
 all:						\
 	$(SHUTDOWN)				\
 	$(INIT)					\
-	$(INITRAM)
+	$(INITRAM)				\
+	$(TESTDAEMON)
 
 
 ########################################
@@ -76,14 +81,24 @@ $(SHUTDOWN):		$(SHUTDOWN_OBJS)
 			@echo "x--------------------x"
 			@echo ""
 
+$(TESTDAEMON):		$(TESTDAEMON_OBJS)
+			$(CC) $(LDFLAGS) $(TESTDAEMON_OBJS) -o $@
+			@echo ""
+			@echo "x--------------------x"
+			@echo "| testdaemon      OK |"
+			@echo "x--------------------x"
+			@echo ""
+
 
 clean:
 	@$(foreach obj, $(INIT_OBJS), rm -fv $(obj);)
 	@$(foreach obj, $(SHUTDOWN), rm -fv $(obj);)
 	@$(foreach obj, $(INITRAM_OBJS), rm -fv $(obj);)
+	@$(foreach obj, $(TESTDAEMON), rm -fv $(obj);)
 
 	@-rm -fv ./$(INIT)
 	@-rm -fv ./$(SHUTDOWN)
 	@-rm -fv ./$(INITRAM)
+	@-rm -fv ./$(TESTDAEMON)
 	@echo "cleaned."
 

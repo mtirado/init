@@ -1,5 +1,6 @@
-/* (c) 2017 Michael R. Tirado GPLv3+
+/* (c) 2017 Michael R. Tirado -- GPLv3+
  * GNU General Public License, version 3 or any later version.
+ * contact: mtirado418@gmail.com
  */
 #define _GNU_SOURCE
 #include <unistd.h>
@@ -9,10 +10,9 @@
 #include <errno.h>
 #include <string.h>
 
-char tmpbuf[4096];
 char *get_cmdline(const char *param, unsigned int *out_len)
 {
-	char cmdline[4096]; /* as of linux 4.8, largest COMMAND_LINE_SIZE */
+	static char cmdline[4096]; /* as of linux 4.8, largest COMMAND_LINE_SIZE */
 	unsigned int i;
 	unsigned int param_len;
 	unsigned int size;
@@ -56,12 +56,10 @@ char *get_cmdline(const char *param, unsigned int *out_len)
 			{
 				if (cmdline[i] == '\n' || cmdline[i] == '\0') {
 					unsigned int len = i - start;
-					if (len >= sizeof(tmpbuf))
+					if (len >= sizeof(cmdline))
 						return NULL;
-					memset(tmpbuf, 0, sizeof(tmpbuf));
-					strncpy(tmpbuf, &cmdline[start], len);
 					*out_len = len;
-					return tmpbuf;
+					return cmdline + i;
 				}
 			}
 		}

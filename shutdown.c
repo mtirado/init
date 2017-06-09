@@ -1,7 +1,6 @@
-/* (c) 2015 Michael R. Tirado -- GPLv3, GNU General Public License, version 3.
+/* (c) 2017 Michael R. Tirado -- GPLv3+
+ * GNU General Public License, version 3 or any later version.
  * contact: mtirado418@gmail.com
- *
- * shutdown.c
  */
 
 #define _GNU_SOURCE
@@ -59,7 +58,7 @@ int do_shutdown(unsigned int rb_action, int killall)
 	pid_t p;
 
 	/*
-	 * TODO make a nice killall function to use in force mode,
+	 * TODO make a nice killall function to use in force mode, unless stealth
 	 */
 	if (killall) {
 		if (kill(-1, SIGKILL)) {
@@ -231,17 +230,20 @@ static void sig_setup()
 {
 	struct sigaction sa;
 	memset(&sa, 0, sizeof(sa));
-	sa.sa_handler = SIG_IGN; sigaction(SIGTERM, &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGILL,  &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGABRT, &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGHUP,  &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGFPE,  &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGSEGV, &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGALRM, &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGBUS,  &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGSYS,  &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGPIPE, &sa, NULL);
-	sa.sa_handler = SIG_IGN; sigaction(SIGQUIT, &sa, NULL);
+
+	/* ignore */
+	sa.sa_handler = SIG_IGN;
+	sigaction(SIGTERM, &sa, NULL);
+	sigaction(SIGILL,  &sa, NULL);
+	sigaction(SIGABRT, &sa, NULL);
+	sigaction(SIGHUP,  &sa, NULL);
+	sigaction(SIGFPE,  &sa, NULL);
+	sigaction(SIGSEGV, &sa, NULL);
+	sigaction(SIGALRM, &sa, NULL);
+	sigaction(SIGBUS,  &sa, NULL);
+	sigaction(SIGSYS,  &sa, NULL);
+	sigaction(SIGPIPE, &sa, NULL);
+	sigaction(SIGQUIT, &sa, NULL);
 }
 
 int main(int argc, char **argv)

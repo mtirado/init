@@ -9,7 +9,7 @@
 #ifndef PRG_CONFIGS_DIR
 	#define PRG_CONFIGS_DIR "/etc/init/programs"
 #endif
-#ifndef PRG_CONFIG_SIZE
+#ifndef PRG_CONFIG_SIZE /* should be able to completely fit in a pipe */
 	#define PRG_CONFIG_SIZE 4096
 #endif
 #ifndef PRG_PATHLEN

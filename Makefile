@@ -1,16 +1,21 @@
 #########################################
 # global defines
 #########################################
+ifndef DESTDIR
+DESTDIR=/usr/local
+endif
+ifndef INIT_PROGRAM
+INIT_PROGRAM="/etc/init.sh"
+endif
+ifndef SHUTDOWN_PROGRAM
+SHUTDOWN_PROGRAM="/etc/shutdown.sh"
+endif
+
 DEFINES := -DMAX_SYSTEMPATH=1024
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
 DEFLANG := -ansi
 #DBG	:= -g
-#########################################
-# optional features
-#########################################
 
-
-#TODO strip debugging info
 #########################################
 # objects
 #########################################
@@ -89,6 +94,15 @@ $(TESTDAEMON):		$(TESTDAEMON_OBJS)
 			@echo "x--------------------x"
 			@echo ""
 
+install:
+	@umask 022
+	@install -dvm 0755  "$(DESTDIR)/sbin"
+	@install -dvm 0755  "$(DESTDIR)/etc/init"
+	@install -Dvm 0750  "$(INIT)"          "$(DESTDIR)/sbin/init"
+	@install -Dvm 0750  "$(SHUTDOWN)"      "$(DESTDIR)/sbin/shutdown"
+	@install -Dvm 0750  "modman.sh"        "$(DESTDIR)/sbin/modman.sh"
+	@install -Dvm 0750  "etc/init.sh"      "$(DESTDIR)/$(INIT_PROGRAM)"
+	@install -Dvm 0750  "etc/shutdown.sh"  "$(DESTDIR)/$(SHUTDOWN_PROGRAM)"
 
 clean:
 	@$(foreach obj, $(INIT_OBJS), rm -fv $(obj);)

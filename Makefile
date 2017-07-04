@@ -5,13 +5,16 @@ ifndef DESTDIR
 DESTDIR=/usr/local
 endif
 ifndef INIT_PROGRAM
-INIT_PROGRAM="/etc/init.sh"
+INIT_PROGRAM=/etc/init.sh
 endif
 ifndef SHUTDOWN_PROGRAM
-SHUTDOWN_PROGRAM="/etc/shutdown.sh"
+SHUTDOWN_PROGRAM=/etc/shutdown.sh
 endif
 
-DEFINES := -DMAX_SYSTEMPATH=1024
+DEFINES := -DMAX_SYSTEMPATH=1024 			\
+	   -DINIT_PROGRAM=\"$(INIT_PROGRAM)\"		\
+	   -DSHUTDOWN_PROGRAM=\"$(SHUTDOWN_PROGRAM)\"
+
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
 DEFLANG := -ansi
 #DBG	:= -g

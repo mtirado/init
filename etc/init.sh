@@ -1,6 +1,7 @@
 #!/bin/sh
 
 NETDEV=eth0
+# defaults for qemu
 IPADDR=10.0.2.15/24
 GATEWAY=10.0.2.2
 
@@ -20,7 +21,6 @@ else
 fi
 
 # check filesystem before remounting
-# TODO add --rescue option, maybe
 if [ $RW = "no" ]; then
 	echo "checking root filesystem"
 	fsck -C -a /
@@ -48,20 +48,15 @@ if [ $RW = "no" ]; then
 	if [ $CHKRET -ge 2 ]; then
 		umount -var
 		umount -vn -o remount,ro /
-		echo "reboot now"
-		read -n 1 anykey
-		read -n 1 anykey
-		read -n 1 anykey
-		read -n 1 anykey
-		# TODO call reboot and test this stuff again
-		exit -1
-		#reboot -f
+		echo "press return key to reboot"
+		read anykey
+		shutdown -Zr
 	fi
 else
 	echo "filesystem was already mounted in r/w mode, this is unexpected."
 	echo "your boot loader should be using ro / read-only option"
-	echo "press any key to continue"
-	read -n 1 anykey
+#	echo "press any key to continue"
+#	read -n 1 anykey
 fi
 
 
@@ -72,8 +67,8 @@ if [ $? -eq 0 ]; then
 	echo "remounted rootfs with +rw"
 else
 	echo "failed remounting root filesystem in read/write mode"
-	echo "press any key to continue"
-	read -n 1 anykey
+#	echo "press any key to continue"
+#	read -n 1 anykey
 fi
 
 
@@ -105,6 +100,7 @@ ip route add default via $GATEWAY
 /root/firewall.sh
 if [ $? -ne 0 ]; then
 	echo "firewall script failed! <-------------"
+	sleep 1
 fi
 
 #restore alsa settings

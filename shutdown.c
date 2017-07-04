@@ -65,8 +65,8 @@ int do_shutdown(unsigned int rb_action, int killall)
 			printf("kill(-1, SIGTERM): %s\n", strerror(errno));
 		}
 	}
-	sync();
 	usleep(500000);
+	sync();
 	p = fork();
 	if (p == 0) {
 		char *args[] = { NULL, NULL };

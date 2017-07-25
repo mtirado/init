@@ -43,23 +43,22 @@ char *get_cmdline(const char *param, unsigned int *out_len)
 	i = 0;
 	do
 	{
-		if (cmdline[i] != param[0]) {
-			while (++i < size)
-			{
-				if (cmdline[i] == '\n' || cmdline[i] == '\0')
-					break;
-			}
+		char c = cmdline[i];
+		if (c != param[0]) {
+			if (c == '\0' || c == '\n')
+				return NULL;
 		}
 		else if (!strncmp(param, &cmdline[i], param_len)){
 			unsigned int start = i;
 			while (++i < size)
 			{
-				if (cmdline[i] == '\n' || cmdline[i] == '\0') {
+				c = cmdline[i];
+				if (c == '\n' || c == '\0' || c == ' ') {
 					unsigned int len = i - start;
-					if (len >= sizeof(cmdline))
+					if (len >= sizeof(cmdline)-1)
 						return NULL;
 					*out_len = len;
-					return cmdline + i;
+					return cmdline + start;
 				}
 			}
 		}
@@ -77,7 +76,7 @@ char get_modman_mode()
 
 	param_str = get_cmdline(find_param, &cmdlen);
 	if (param_str == NULL) {
-		return 'n';
+		return 'a';
 	}
 
 	/* expects a single byte (where null terminator is in find_param) */
@@ -93,6 +92,8 @@ char get_modman_mode()
 			return 'w';
 		case 'i':
 			return 'i';
+		default:
+			return 'n';
 	}
 invalid:
 	printf("modman: bad kernel cmdline param, defaulting to auto mode.\n");
@@ -100,5 +101,6 @@ invalid:
 	printf("       auto mode: modman.mode=a\n");
 	printf("  whitelist mode: modman.mode=w\n");
 	printf("interactive mode: modman.mode=i\n");
+	printf("       null mode: modman.mode=n\n");
 	return 'a';
 }

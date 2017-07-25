@@ -60,7 +60,7 @@
 	#define INIT_PROGRAM "/etc/init.sh"
 #endif
 #ifndef DEFAULT_PATH
-	#define DEFAULT_PATH "/sbin:/bin:/usr/sbin"
+	#define DEFAULT_PATH "/sbin:/usr/sbin:/bin:/usr/bin"
 #endif
 #ifndef CRASH_PANIC
 	#define CRASH_PANIC 0 /* exit pid1 on panic? */
@@ -75,7 +75,6 @@
 extern char **environ;
 
 /* cmdline.c */
-extern char *get_cmdline(const char *param, unsigned int *out_len);
 extern char get_modman_mode();
 
 /* shutdown.c */
@@ -224,12 +223,17 @@ static int initialize()
 
 		mkdir("/sys", 0700);
 		chmod("/sys", 0700);
+		mkdir("/proc", 0700);
+
+		if (mount(0,"/proc","proc", MS_NODEV|MS_NOSUID|MS_NOEXEC, 0)) {
+			printf("unable to mount /proc: %s\n", strerror(errno));
+		}
 
 		/* load modules */
 		modmode = get_modman_mode();
 		if (modmode != 'n') {
 			if (mount(0, "/sys", "sysfs", MS_NODEV|MS_NOSUID|MS_NOEXEC, 0)) {
-				printf("unable to mount /sys\n");
+				printf("unable to mount /sys: %s\n", strerror(errno));
 			}
 			switch (modmode)
 			{
@@ -496,8 +500,11 @@ static int spawn(struct program *prg)
 			return -1;
 		}
 		prg->pid = p;
-		return 0; /* TODO things could go wrong, we should have a way
-			     to rate limit or clear frequent respawns */
+		return 0; /* TODO things could go wrong, like a missing file. need a way
+			     to rate limit or clear frequent respawns so console error
+			     spam is actually readable. in the case of missing home we
+			     can create it, missing workdir can use home as fallback
+			     missing binary should clear respawn value and just fail */
 	}
 
 

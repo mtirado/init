@@ -9,8 +9,8 @@ echo "***************************************************************"
 echo "***          super basic init script version 0.2            ***"
 echo "***************************************************************"
 
-mount -vnt proc proc /proc
-mount -vnt sysfs sysfs /sys
+#mount -vnt proc proc /proc
+#mount -vnt sysfs sysfs /sys
 
 RW=no
 if touch "/fswrtestfile" 2>/dev/null; then
@@ -23,7 +23,7 @@ fi
 # check filesystem before remounting
 if [ $RW = "no" ]; then
 	echo "checking root filesystem"
-	fsck -C -a /
+	fsck -C0 -a /
 	CHKRET=$?
 	echo -n "filesystem check returned $CHKRET: "
 	case "$CHKRET" in
@@ -41,13 +41,13 @@ if [ $RW = "no" ]; then
 		echo "filesystem errors"
 		echo "errors are uncorrected, rebooting may fix this."
 		#echo "if not, boot with --rescue appended to fix manually"
-		echo "if ext2, \'e2fsck -v -y <root-partition>\' might help."
+		echo "if ext2, 'e2fsck -v -y -f <root-partition>' might help."
 		echo "an incorrect /etc/fstab can also cause this error."
 	;;
 	esac
 	if [ $CHKRET -ge 2 ]; then
 		umount -var
-		umount -vn -o remount,ro /
+		mount -vn -o remount,ro /
 		echo "press return key to reboot"
 		read anykey
 		shutdown -Zr

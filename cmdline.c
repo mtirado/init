@@ -54,10 +54,11 @@ char *get_cmdline(const char *param, unsigned int *out_len)
 			{
 				c = cmdline[i];
 				if (c == '\n' || c == '\0' || c == ' ') {
-					unsigned int len = i - start;
+					unsigned int len = (i - 1) - start;
 					if (len >= sizeof(cmdline)-1)
 						return NULL;
 					*out_len = len;
+					cmdline[i] = '\0';
 					return cmdline + start;
 				}
 			}
@@ -78,9 +79,8 @@ char get_modman_mode()
 	if (param_str == NULL) {
 		return 'a';
 	}
-
 	/* expects a single byte (where null terminator is in find_param) */
-	if (cmdlen != sizeof(find_param)) {
+	if (!cmdlen || cmdlen != sizeof(find_param)-1) {
 		goto invalid;
 	}
 	param_str += cmdlen;

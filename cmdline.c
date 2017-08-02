@@ -80,10 +80,10 @@ char get_modman_mode()
 		return 'a';
 	}
 	/* expects a single byte (where null terminator is in find_param) */
-	if (!cmdlen || cmdlen != sizeof(find_param)) {
+	if (cmdlen != sizeof(find_param)) {
 		goto invalid;
 	}
-	param_str += cmdlen;
+	param_str += (cmdlen-1);
 
 	switch (*param_str)
 	{

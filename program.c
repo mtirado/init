@@ -295,9 +295,53 @@ static long getlong(char *str, long *out)
 	return 0;
 }
 
+static int parse_tty(struct program *prg, char *params, const size_t len)
+{
+	long long_read;
+	int is_serial = 0;
+
+	if (params[0] == 'S') {
+		if (len <= 1) {
+			return -1;
+		}
+		params += 1; /* allow S for ttyS* serial */
+		is_serial = 1;
+	}
+	if (getlong(params, &long_read)) {
+		return -1;
+	}
+	if (long_read >= LONG_MAX) {
+		printf("uid too big\n");
+		return -1;
+	}
+	else if (long_read < 0) {
+		printf("TODO negative tty for logging daemons/etc \n");
+		return -1;
+	}
+	else if (!is_serial && long_read == 0) {
+		/* could silently use /dev/console instead of failing */
+		printf("tty0 not supported\n");
+		return -1;
+	}
+	if (is_serial) {
+		if (snprintf(prg->ttynum, PRG_TTYLEN, "S%li", long_read) >= PRG_TTYLEN) {
+			printf("tty number too long\n");
+			return -1;
+		}
+	}
+	else {
+		if (snprintf(prg->ttynum, PRG_TTYLEN, "%li", long_read) >= PRG_TTYLEN) {
+			printf("tty number too long\n");
+			return -1;
+		}
+	}
+	return 0;
+}
+
 static int load_parameters(struct program *prg, int kw, char *params, const size_t len)
 {
 	long long_read;
+
 	switch (kw)
 	{
 	case KW_WORKDIR:
@@ -384,25 +428,8 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 		break;
 
 	case KW_TTY:
-		if (getlong(params, &long_read))
+		if (parse_tty(prg, params, len))
 			return -1;
-		if (long_read >= LONG_MAX) {
-			printf("uid too big\n");
-			return -1;
-		}
-		else if (long_read < 0) {
-			printf("TODO negative tty for logging daemons/etc \n");
-			return -1;
-		}
-		else if (long_read == 0) {
-			/* could silently use /dev/console instead of failing */
-			printf("tty0 not supported\n");
-			return -1;
-		}
-		if (snprintf(prg->ttynum, PRG_TTYLEN, "%li", long_read) >= PRG_TTYLEN) {
-			printf("tty number truncated by PRG_TTYLEN=%d\n", PRG_TTYLEN);
-			return -1;
-		}
 		break;
 
 	case KW_CAPABLE:

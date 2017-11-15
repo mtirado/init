@@ -331,8 +331,6 @@ static int open_tty(char *tty_num, int hangup, int clear)
 	char ttypath[40];
 	int fd;
 
-	setsid();
-
 	if (tty_num == NULL) {
 		printf("null string passed to open_tty\n");
 		return -1;
@@ -528,6 +526,8 @@ static int spawn(struct program *prg)
 			     missing binary should clear respawn value and just fail */
 	}
 
+
+	setsid();
 
 	if (prg->ttynum[0] != '\0') {
 		if (open_tty(prg->ttynum, 1, 0)) {

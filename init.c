@@ -302,6 +302,26 @@ static int getch(char *c)
 	return 0;
 }
 
+static int close_stdin()
+{
+	int nullfd;
+
+	nullfd = open("/dev/null", O_RDONLY, 0);
+	if (nullfd < 0) {
+		printf("cannot open /dev/null: %s\n", strerror(errno));
+		return -1;
+	}
+	close(0);
+	if (dup2(nullfd, 0) != 0) {
+		printf("dup2(/dev/null): %s\n", strerror(errno));
+		return -1;
+	}
+	if (isatty(0)) {
+		return -1;
+	}
+	return 0;
+}
+
 /* open_tty - set up tty device as stdio
  * based on mingetty open_tty
  * TODO test real serial console
@@ -456,8 +476,9 @@ static int check_program(struct program *prg)
 	printf("------------------------------------------------------------\n");
 	printf("load: %s\n", prg->name);
 	printf("------------------------------------------------------------\n");
-	if (prg->ttynum[0] == '\0')
-		printf("  stdio: /dev/console\n");
+	if (prg->ttynum[0] == '\0') {
+		printf("  stdout: /dev/console\n");
+	}
 	else
 		printf("  stdio: /dev/tty%s\n", prg->ttynum);
 	printf("  path: %s\n", prg->binpath);
@@ -511,6 +532,11 @@ static int spawn(struct program *prg)
 	if (prg->ttynum[0] != '\0') {
 		if (open_tty(prg->ttynum, 1, 0)) {
 			printf("error: could not open tty%s\n", prg->ttynum);
+			_exit(-1);
+		}
+	}
+	else {
+		if (close_stdin()) {
 			_exit(-1);
 		}
 	}

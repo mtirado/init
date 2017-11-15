@@ -1,0 +1,7 @@
+uid 9000
+gid 900
+tty 5
+respawn 0
+workdir /home/gtscreen
+cmdline /usr/bin/gtscreen --inactive-vt
+environ PATH=/usr/bin TERM=linux USER=gtscreen LOGNAME=gtscreen HOME=/home/gtscreen SPR16_POINTER_ACCEL=195

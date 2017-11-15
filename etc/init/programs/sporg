@@ -1,0 +1,6 @@
+uid 1000
+gid 100
+respawn 0
+workdir /home/user
+cmdline /bin/bash /etc/init/scripts/sporg.sh
+environ PATH=/bin:/usr/bin:/usr/local/bin TERM=linux USER=user LOGNAME=user HOME=/home/user

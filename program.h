@@ -42,6 +42,9 @@
 #ifndef PRG_FILE_LIMIT
 	#define PRG_FILE_LIMIT 1000
 #endif
+#ifndef PRG_RAPID_RESPAWN_USECS
+	#define PRG_RAPID_RESPAWN_USECS (1000 * 300) /* 300 millisec */
+#endif
 
 struct program {
 	/* avoid relative pointer to addr 0, considered as argv/environ sentinel */
@@ -56,6 +59,7 @@ struct program {
 	uid_t uid;
 	gid_t gid;
 	int respawn; /* -1 for unlimited respawns */
+	struct timespec last_spawn;
 
 	/* when file io process sends program to pid1, the pointers are relative
 	 * from beginning of struct; they point to data in the above arrays */

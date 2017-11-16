@@ -82,7 +82,7 @@ extern int call_reboot(unsigned int rb_action);
 extern int do_shutdown(unsigned int rb_action, int killall);
 extern void shutdown_fallback(unsigned int rb_action);
 sig_atomic_t g_terminating;
-
+int g_firstspawn;
 #define TERM_SHUTDOWN 1
 #define TERM_REBOOT   2
 #define TERM_HALT     3
@@ -457,10 +457,60 @@ static int check_permission(struct program *prg)
 	return 0;
 }
 
+static unsigned long usecs_elapsed(struct timespec last, struct timespec cur)
+{
+	struct timespec elapsed;
+	unsigned long usec;
+
+	if (cur.tv_sec < last.tv_sec
+			|| (cur.tv_sec == last.tv_sec && cur.tv_nsec < last.tv_nsec)) {
+		printf("error: clock seems to have gone backwards\n");
+		return 0;
+	}
+
+	elapsed.tv_sec = cur.tv_sec - last.tv_sec;
+	if (!elapsed.tv_sec) {
+		elapsed.tv_nsec = cur.tv_nsec - last.tv_nsec;
+		usec = elapsed.tv_nsec / 1000;
+	}
+	else {
+		usec = ((1000000000 - last.tv_nsec) + cur.tv_nsec) / 1000;
+		usec += (elapsed.tv_sec-1) * 1000000;
+	}
+	return usec;
+}
+
+static int check_spawn_timer(struct program *prg)
+{
+	struct timespec curtime;
+	unsigned long usecs;
+
+	if (g_firstspawn)
+		return 0;
+
+	if (clock_gettime(CLOCK_MONOTONIC_RAW, &curtime)) {
+		if (clock_gettime(CLOCK_MONOTONIC, &curtime)) {
+			memset(&prg->last_spawn, 0, sizeof(struct timespec));
+			return -1;
+		}
+	}
+	usecs = usecs_elapsed(prg->last_spawn, curtime);
+	if (usecs <= PRG_RAPID_RESPAWN_USECS) {
+		printf("***** PROGRAM RESPAWN ERROR *****\n");
+		printf("rapid respawn detected, disabling %s.\n", prg->name);
+		printf("TODO: option to bypass this timer\n");
+		errno = ETIME;
+		return -1;
+	}
+	return 0;
+}
+
 static int check_program(struct program *prg)
 {
 	unsigned int i;
 
+	if (check_spawn_timer(prg))
+		return -1;
 	if (prg->name[0] == '\0' || prg->workdir[0] != '/' || prg->binpath[0] != '/')
 		return -1;
 	if (prg->name[PRG_NAMELEN-1] != '\0'
@@ -471,6 +521,7 @@ static int check_program(struct program *prg)
 		return -1;
 	}
 
+	printf("\n");
 	printf("------------------------------------------------------------\n");
 	printf("load: %s\n", prg->name);
 	printf("------------------------------------------------------------\n");
@@ -512,6 +563,19 @@ static int spawn(struct program *prg)
 	if (check_program(prg))
 		return -1;
 
+	if (clock_gettime(CLOCK_MONOTONIC_RAW, &prg->last_spawn)) {
+		if (clock_gettime(CLOCK_MONOTONIC, &prg->last_spawn)) {
+			if (!g_firstspawn) {
+				/* don't respawn any programs if the clock is busted */
+				memset(&prg, 0, sizeof(struct program));
+				return -1;
+			}
+			else {
+				memset(&prg->last_spawn, 0, sizeof(struct timespec));
+			}
+		}
+	}
+
 	p = fork();
 	if (p) {
 		if (p == -1) {
@@ -519,6 +583,7 @@ static int spawn(struct program *prg)
 			return -1;
 		}
 		prg->pid = p;
+
 		return 0; /* TODO things could go wrong, like a missing file. need a way
 			     to rate limit or clear frequent respawns so console error
 			     spam is actually readable. in the case of missing home we
@@ -788,6 +853,7 @@ int main()
 {
 	struct program prg[MAX_PERSISTENT];
 
+	g_firstspawn = 1;
 	g_terminating = 0;
 	memset(&prg, 0, sizeof(prg));
 	setsid();
@@ -822,6 +888,7 @@ int main()
 		panic();
 #endif
 	}
+	g_firstspawn = 0;
 
 	/* now we wait! */
 	wait_loop(prg);

@@ -69,6 +69,9 @@ for MODALIAS in $(find /sys -name modalias -exec cat {} \; ); do
 	ELEM=$(/sbin/modprobe --show-depends "$MODALIAS" 2>/dev/null)
 	if [[ "$ELEM" == insmod* ]]; then
 		ELEMENTS+="$ELEM"
+	elif [[ "$ELEM" == builtin* ]]; then
+		# lines may also start with "builtin"
+		ELEMENTS+="$ELEM"
 	fi
 done
 

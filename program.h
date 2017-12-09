@@ -13,19 +13,19 @@
 	#define PRG_CONFIG_SIZE 4096
 #endif
 #ifndef PRG_PATHLEN
-	#define PRG_PATHLEN 256
+	#define PRG_PATHLEN 255
 #endif
 #ifndef PRG_TTYLEN
-	#define PRG_TTYLEN 8
+	#define PRG_TTYLEN 7
 #endif
 #ifndef PRG_NAMELEN
-	#define PRG_NAMELEN 32
+	#define PRG_NAMELEN 31
 #endif
 #ifndef PRG_CMDLEN
-	#define PRG_CMDLEN 1280
+	#define PRG_CMDLEN 1279
 #endif
 #ifndef PRG_ENVLEN
-	#define PRG_ENVLEN 1280
+	#define PRG_ENVLEN 1279
 #endif
 #ifndef PRG_NUM_ENVIRON
 	#define PRG_NUM_ENVIRON 63
@@ -50,11 +50,11 @@ struct program {
 	/* avoid relative pointer to addr 0, considered as argv/environ sentinel */
 	unsigned int unused_relative_addr_0;
 
-	char environ_data[PRG_ENVLEN]; /* environ points here */
-	char cmdline[PRG_CMDLEN]; /* binpath and argv point here */
-	char name[PRG_NAMELEN];
-	char ttynum[PRG_TTYLEN];
-	char workdir[PRG_PATHLEN];
+	char environ_data[PRG_ENVLEN+1]; /* environ points here */
+	char cmdline[PRG_CMDLEN+1]; /* binpath and argv point here */
+	char name[PRG_NAMELEN+1];
+	char ttynum[PRG_TTYLEN+1];
+	char workdir[PRG_PATHLEN+1];
 	pid_t pid; /* filled out by pid1 after forking */
 	uid_t uid;
 	gid_t gid;

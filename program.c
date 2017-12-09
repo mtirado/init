@@ -22,6 +22,9 @@
 #include <dirent.h>
 #include "program.h"
 
+#include "eslib/eslib.h"
+#include "eslib/eslib_fortify.h"
+
 #define is_whitespace(ch) (ch == ' ' || ch == '\t')
 
 /*
@@ -32,9 +35,9 @@
  * uid		- user id
  * gid		- group id
  * tty		- stdio, default is 0 (console). TODO negative could be for daemons
+ * capable	- leave caps in bounding set "cap_net_bind_service cap_syslog etc"
  *
  * TODO:
- * capable	- leave caps in bounding set "cap_net_bind_service cap_syslog etc"
  * wait		- block for milliseconds while checking for exit status to detect
  *		  failures, adding time to boot process.
  * after	- set launch ordering, error on circular dependency.
@@ -52,8 +55,8 @@ enum {
 	KW_CAPABLE,
 	KWCOUNT
 };
-#define KWLEN 8 /* + terminator */
-const char cfg_keywords[KWCOUNT][KWLEN] = {
+#define KWSIZE 8 /* + terminator */
+const char cfg_keywords[KWCOUNT][KWSIZE] = {
 	"workdir",
 	"cmdline",
 	"environ",
@@ -63,29 +66,6 @@ const char cfg_keywords[KWCOUNT][KWLEN] = {
 	"tty",
 	"capable"
 };
-
-/* returns the address of the next non-whitespace and update index
- * the starting character is completely ignored.
- * return with errno=ECANCELED on null terminator/eof.
- */
-static char *skip_whitespace(char *str, unsigned int *idx, const unsigned int max)
-{
-	unsigned int i = *idx;
-	errno = 0;
-	while (++i < max)
-	{
-		if (str[i] == '\0') {
-			errno = ECANCELED;
-			return NULL;
-		}
-		else if (!is_whitespace(str[i])) {
-			*idx = i;
-			return &str[i];
-		}
-	}
-	errno = E2BIG;
-	return NULL;
-}
 
 static char *program_relative_ptr(struct program *prg, char *ptr)
 {
@@ -147,75 +127,110 @@ failure:
 	return -1;
 }
 
-static int load_environ(struct program *prg)
+static int load_environ(struct program *prg, char *params, const size_t len)
 {
-	char *env = prg->environ_data;
-	char *start = NULL;
+	char *env_data;
 	unsigned int count = 0;
-	unsigned int i = 0;
-	unsigned int found_eq = 0;
-	unsigned int search_eq = 0;
+	size_t pos = 0;
+	unsigned int advance;
 
-	/* find first var start */
-	if (is_whitespace(env[0])) {
-		start = skip_whitespace(env, &i, PRG_ENVLEN-1);
-		if (start == NULL) {
-			printf("no environment variables found\n");
+	/* copy data into struct */
+	if (len >= PRG_ENVLEN) {
+		printf("max envlen: %d\n", PRG_ENVLEN);
+		return -1;
+	}
+	memcpy(prg->environ_data, params, len);
+	prg->environ_data[len] = '\0';
+	env_data = prg->environ_data;
+
+	while (pos < len)
+	{
+		char *token;
+		char *eq;
+
+		token = eslib_string_toke(env_data, pos, len, &advance);
+		if (token == NULL)
+			break;
+
+		pos += advance;
+		eq = token;
+		do {
+			if (*eq == '=') {
+				/* eq should not start or end token */
+				if (eq == env_data || *(eq+1) == '\0')
+					goto syntax_eq;
+				break;
+			}
+			if (++eq >= env_data + len)
+				goto syntax_eq;
+		} while (*eq != '\0');
+		if (*eq == '\0')
+			goto syntax_eq;
+
+		prg->environ[count] = program_relative_ptr(prg, token);
+
+		if (++count > PRG_NUM_ENVIRON) {
+			printf("max env vars: %d\n", PRG_NUM_ENVIRON);
 			return -1;
 		}
 	}
-	else {
-		start = env;
-	}
-	if (*start == '=') {
-		printf("unexpected = operator\n");
+	if (count == 0) {
+		printf("no environment variables found\n");
 		return -1;
 	}
-	search_eq = 1; /* looking for = operator */
-	for (; i < PRG_ENVLEN-1; ++i)
+	return 0;
+syntax_eq:
+	printf("env var syntax error, missing or misplaced = operator\n");
+	return -1;
+}
+
+/* setup binpath and argv */
+static int load_cmdline(struct program *prg, char *params, const size_t len)
+{
+	char *binpath;
+	char *cmdline_data;
+	unsigned int count = 0;
+	size_t pos = 0;
+	unsigned int advance;
+
+	if (len >= PRG_CMDLEN) {
+		printf("max cmdlen: %d\n", PRG_CMDLEN);
+		return -1;
+	}
+
+	memcpy(prg->cmdline, params, len);
+	prg->cmdline[len] = '\0';
+	cmdline_data = prg->cmdline;
+
+	/* setup binpath and argv[0] */
+	binpath = eslib_string_toke(cmdline_data, pos, len, &advance);
+	pos += advance;
+	if (binpath == NULL) {
+		printf("cmdline missing binpath\n");
+		return -1;
+	}
+	if (*binpath != '/') {
+		printf("binpath must be absolute path starting with /\n");
+		return -1;
+	}
+	prg->binpath = program_relative_ptr(prg, binpath);
+	prg->argv[count++] = program_relative_ptr(prg, prg->name);
+
+	/* setup args */
+	while (pos < len)
 	{
-		if (search_eq && env[i] == '=') {
-			found_eq = 1;
-			search_eq = 0;
-		}
-		else if (is_whitespace(env[i]) || env[i] == '\0') {
-			/* end of environment string */
-			if (found_eq == 0) {
-				printf("missing = in environ \"VAR=val\"\n");
-				return -1;
-			}
-			found_eq = 0;
+		char *token;
 
-			/* terminate and load into argv */
-			env[i] = '\0';
-			prg->environ[count] = program_relative_ptr(prg, start);
-			start = NULL;
-			if (++count > PRG_NUM_ENVIRON) {
-				printf("max env vars: %d\n", PRG_NUM_ENVIRON);
-				return -1;
-			}
+		token = eslib_string_toke(cmdline_data, pos, len, &advance);
+		if (token == NULL)
+			break;
+		pos += advance;
 
-			/* find next var start */
-			start = skip_whitespace(env, &i, PRG_ENVLEN-1);
-			if (start == NULL) {
-				if (errno == ECANCELED)
-					break; /* eof */
-				return -1;
-			}
-			else if (*start == '=') {
-				printf("unexpected = operator\n");
-				return -1;
-			}
-			if (i >= PRG_ENVLEN-1)
-				break;
-			search_eq = 1;
+		prg->argv[count] = program_relative_ptr(prg, token);
+		if (++count > PRG_NUM_ARGUMENTS) {
+			printf("max env vars: %d\n", PRG_NUM_ENVIRON);
+			return -1;
 		}
-	}
-	if (env[PRG_ENVLEN-1] != '\0')
-		return -1;
-	if (search_eq) {
-		printf("missing = operator\n");
-		return -1;
 	}
 	if (count == 0) {
 		printf("no environment variables found\n");
@@ -224,80 +239,9 @@ static int load_environ(struct program *prg)
 	return 0;
 }
 
-/* setup binpath and argv */
-static int load_cmdline(struct program *prg, char *params)
-{
-	char *cmdline = prg->cmdline;
-	char *start = NULL;
-	unsigned int i;
-	unsigned int count = 0;
-
-	strncpy(prg->cmdline, params, PRG_CMDLEN-1);
-	prg->cmdline[PRG_CMDLEN-1] = '\0';
-	/* terminate binpath */
-	for (i = 0; i < PRG_CMDLEN-1; ++i)
-	{
-		if (cmdline[i] == '\0')
-			break;
-		if (is_whitespace(cmdline[i])) {
-			cmdline[i] = '\0';
-			break;
-		}
-	}
-	if (i >= PRG_CMDLEN-1) {
-		printf("cmdline bin path too long\n");
-		return -1;
-	}
-
-	prg->binpath = program_relative_ptr(prg, prg->cmdline);
-	prg->argv[count] = program_relative_ptr(prg, prg->name);
-	count++;
-	while (i < PRG_CMDLEN)
-	{
-		/* find start of argument */
-		start = skip_whitespace(cmdline, &i, PRG_CMDLEN);
-		if (start == NULL) {
-			return 0;
-		}
-		/* find end of argument */
-		while (i < PRG_CMDLEN)
-		{
-			if (is_whitespace(cmdline[i]) || cmdline[i] == '\0') {
-				/* terminate and load into argv */
-				cmdline[i] = '\0';
-				prg->argv[count] = program_relative_ptr(prg, start);
-				start = NULL;
-				if (++count >= PRG_NUM_ARGUMENTS) {
-					printf("max args: %d\n", PRG_NUM_ARGUMENTS);
-					return -1;
-				}
-				break;
-			}
-			++i;
-		}
-	}
-	return 0;
-
-}
-
-/* FIXME trailing whitespace causes error */
-static long getlong(char *str, long *out)
-{
-	long ret;
-	char *err = NULL;
-	errno = 0;
-	ret = strtol(str, &err, 10);
-	if (err == NULL || *err || errno) {
-		printf("bad long parameter\n");
-		return -1;
-	}
-	*out = ret;
-	return 0;
-}
-
 static int parse_tty(struct program *prg, char *params, const size_t len)
 {
-	long long_read;
+	int32_t ttynum;
 	int is_serial = 0;
 
 	if (params[0] == 'S') {
@@ -307,40 +251,38 @@ static int parse_tty(struct program *prg, char *params, const size_t len)
 		params += 1; /* allow S for ttyS* serial */
 		is_serial = 1;
 	}
-	if (getlong(params, &long_read)) {
+	if (eslib_string_to_s32(params, &ttynum, 10)) {
+		printf("bad tty number\n");
 		return -1;
 	}
-	if (long_read >= LONG_MAX) {
-		printf("uid too big\n");
+	if (ttynum >= INT32_MAX) {
+		printf("tty number too big\n");
 		return -1;
 	}
-	else if (long_read < 0) {
+	else if (ttynum < 0) {
 		printf("TODO negative tty for logging daemons/etc \n");
 		return -1;
 	}
-	else if (!is_serial && long_read == 0) {
+	else if (!is_serial && ttynum == 0) {
 		/* could silently use /dev/console instead of failing */
 		printf("tty0 not supported\n");
 		return -1;
 	}
 	if (is_serial) {
-		if (snprintf(prg->ttynum, PRG_TTYLEN, "S%li", long_read) >= PRG_TTYLEN) {
-			printf("tty number too long\n");
+		if (es_sprintf(prg->ttynum, PRG_TTYLEN, NULL, "S%d", ttynum))
 			return -1;
-		}
 	}
 	else {
-		if (snprintf(prg->ttynum, PRG_TTYLEN, "%li", long_read) >= PRG_TTYLEN) {
-			printf("tty number too long\n");
+		if (es_sprintf(prg->ttynum, PRG_TTYLEN, NULL, "%d", ttynum))
 			return -1;
-		}
 	}
 	return 0;
 }
 
 static int load_parameters(struct program *prg, int kw, char *params, const size_t len)
 {
-	long long_read;
+	int32_t int_read;
+	uint32_t uint_read;
 
 	switch (kw)
 	{
@@ -353,8 +295,10 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 			printf("workdir must be absolute path\n");
 			return -1;
 		}
-		strncpy(prg->workdir, params, PRG_PATHLEN-1);
-		prg->workdir[PRG_PATHLEN-1] = '\0';
+		if (es_strcopy(prg->workdir, params, PRG_PATHLEN, NULL)) {
+			printf("workdir\n");
+			return -1;
+		}
 		break;
 
 	case KW_CMDLINE:
@@ -366,70 +310,64 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 			printf("cmdline bin path must be absolute path\n");
 			return -1;
 		}
-		if (load_cmdline(prg, params)) {
+		if (load_cmdline(prg, params, len)) {
 			printf("load_cmdline failed\n");
 			return -1;
 		}
 		break;
 
 	case KW_ENVIRON:
-		if (len >= PRG_ENVLEN) {
-			printf("environ len: %d\n", PRG_ENVLEN);
-			return -1;
-		}
-		strncpy(prg->environ_data, params, PRG_ENVLEN-1);
-		prg->environ_data[PRG_ENVLEN-1] = '\0';
-		if (load_environ(prg)) {
+		if (load_environ(prg, params, len)) {
 			printf("load_environ failed\n");
 			return -1;
 		}
 		break;
 
 	case KW_RESPAWN:
-		if (getlong(params, &long_read))
+		if (eslib_string_to_s32(params, &int_read, 10)) {
+			printf("bad int value\n");
 			return -1;
-		if (long_read < -1) {
+		}
+		if (int_read < -1) {
 			printf("bad respawn value, use -1 for infinite\n");
 			return -1;
 		}
-		if (long_read >= LONG_MAX) {
+		if (int_read >= INT32_MAX) {
 			printf("bad respawn value, use -1 for infinite\n");
 			return -1;
 		}
-		prg->respawn = long_read;
+		prg->respawn = int_read;
 		break;
 
 	case KW_UID:
-		if (getlong(params, &long_read))
+		if (eslib_string_to_u32(params, &uint_read, 10)) {
+			printf("bad int value\n");
 			return -1;
-		if (long_read > USERID_MAX) {
+		}
+		if (uint_read > USERID_MAX) {
 			printf("uid too big\n");
 			return -1;
 		}
-		else if (long_read < 0) {
-			printf("uid is negative\n");
-			return -1;
-		}
-		prg->uid = long_read;
+		prg->uid = uint_read;
 		break;
 
 	case KW_GID:
-		if (getlong(params, &long_read))
+		if (eslib_string_to_u32(params, &uint_read, 10)) {
+			printf("bad int value\n");
 			return -1;
-		if (long_read > GROUPID_MAX) {
+		}
+		if (uint_read > GROUPID_MAX) {
 			printf("gid too big\n");
 			return -1;
 		}
-		else if (long_read < 0) {
-			printf("gid is negative\n");
-			return -1;
-		}
-		prg->gid = long_read;
+		prg->gid = uint_read;
 		break;
 
 	case KW_TTY:
-		if (parse_tty(prg, params, len))
+		if (parse_tty(prg, params, len)) {
+			printf("parse_tty\n");
 			return -1;
+		}
 		break;
 
 	case KW_CAPABLE:
@@ -439,6 +377,7 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 		break;
 
 	default:
+		printf("invalid keyword\n");
 		return -1;
 	}
 	return 0;
@@ -447,129 +386,103 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 static int get_keyword(char *kw)
 {
 	unsigned int i = 0;
-
 	for (; i < KWCOUNT; ++i)
 	{
-		if (strncmp(cfg_keywords[i], kw, KWLEN) == 0)
+		if (strncmp(cfg_keywords[i], kw, KWSIZE) == 0)
 			return i;
 	}
 	return -1;
 }
 
-static int check_line(char *lnbuf, const size_t len)
-{
-	size_t i;
-	for (i = 0; i < len; ++i)
-	{
-		if (lnbuf[i] < 32 || lnbuf[i] > 126) {
-			if (lnbuf[i] != '\t' && lnbuf[i] != '\n') {
-				printf("invalid character(%d)\n", lnbuf[i]);
-				return -1;
-			}
-		}
-	}
-	return 0;
-}
-
-/* prepare keyword with parameters, return start of next line
- * len does not include newline */
-static char *program_parse_line(struct program *prg, char *lnbuf, const size_t len)
-{
-	char *eol = lnbuf + len;
-	char *kw_end;
-	char *param_start;
-	int kw;
-
-	if (len == 0)
-		return eol;
-
-	/* error on strange characters */
-	if (check_line(lnbuf, len))
-		return NULL;
-
-	/* find keyword end */
-	for (kw_end = lnbuf; kw_end < eol; ++kw_end)
-	{
-		char c = *kw_end;
-		if (is_whitespace(c)) {
-			*kw_end = '\0'; /* insert terminator */
-			break;
-		}
-	}
-	if (kw_end >= eol) {
-		printf("bad keyword, missing parameters?\n");
-		return NULL;
-	}
-	kw = get_keyword(lnbuf);
-	if (kw < 0) {
-		printf("unknown keyword %s\n", lnbuf);
-		return NULL;
-	}
-
-	/* find parameter start */
-	for (param_start = kw_end+1; param_start < eol; ++param_start)
-	{
-		char c = *param_start;
-		if (!is_whitespace(c)) {
-			break; /* start here */
-		}
-	}
-	if (param_start >= eol) {
-		printf("cannot find parameters\n");
-		return NULL;
-	}
-
-	*eol = '\0'; /* change newline to null terminator */
-	if (load_parameters(prg, kw, param_start, eol - param_start))
-		return NULL;
-	return eol;
-}
-
-static int program_parse_config(struct program *prg, char *filename,
-		char *fbuf, const size_t fsize)
+static int program_parse_config(struct program *prg_out, char *filename,
+		char *fbuf, const size_t flen)
 {
 	struct program newprg;
-	const char *eof = fbuf + fsize;
-	char *scan;
-	unsigned int line_number = 1;
+	unsigned int line_num = 0;
+	size_t fpos = 0;
 
-	if (fsize == 0) {
+	if (flen == 0) {
 		printf("config file is empty\n");
 		return -1;
 	}
 
 	memset(&newprg, 0, sizeof(struct program));
-	strncpy(newprg.name, filename, PRG_NAMELEN-1);
-	newprg.name[PRG_NAMELEN-1] = '\0';
+	if (es_strcopy(newprg.name, filename, PRG_NAMELEN, NULL))
+		return -1;
 	/* set defaults */
 	newprg.respawn = 0;
 	newprg.uid = USERID_MAX;
 	newprg.gid = GROUPID_MAX;
 	newprg.pid = 0;
 
-	for (scan = fbuf; scan < eof; ++scan)
+	while (fpos < flen)
 	{
-		char *end = scan;
-		char *start = scan;
-		size_t len = 0;
-		while (*end != '\n')
-		{
-			if (++len >= PRG_CONFIG_SIZE) {
-				printf("config size exceeds %d\n", PRG_CONFIG_SIZE-1);
-				return -1;
-			}
-			if (++end >= eof) {
-				break;
-			}
-		}
-		/* inserts null terminator after keyword */
-		scan = program_parse_line(&newprg, start, len);
-		if (scan == NULL) {
-			printf("line number: %d\n", line_number);
+		char *line;
+		char *keyword = NULL;
+		char *param = NULL;
+		unsigned int linepos = 0;
+		unsigned int linelen;
+		unsigned int advance;
+		int kw;
+
+		line = &fbuf[fpos];
+		++line_num;
+
+		linelen = eslib_string_linelen(line, flen - fpos);
+		if (linelen >= flen - fpos) {
+			printf("bad line\n");
 			return -1;
 		}
-		++line_number;
+		else if (linelen == 0) { /* blank line */
+			++fpos;
+			continue;
+		}
+		if (line[0] == '#') { /* comment */
+			fpos += linelen + 1;
+			continue;
+		}
+		if (!eslib_string_is_sane(line, linelen)) {
+			printf("invalid line(%d){%s}\n", *line, line);
+			return -1;
+		}
+		if (eslib_string_tokenize(line, linelen, " \t")) {
+			printf("tokenize failed\n");
+			return -1;
+		}
+
+		keyword = eslib_string_toke(line, linepos, linelen, &advance);
+		linepos += advance;
+		if (keyword == NULL) { /* only tabs/spaces on line */
+			fpos += linelen + 1;
+			continue;
+		}
+		param = eslib_string_toke(line, linepos, linelen, &advance);
+		linepos += advance;
+		if (param == NULL) {
+			printf("missing parameters for keyword %s\n", keyword);
+			return -1;
+		}
+
+		kw = get_keyword(line);
+		if (kw < 0) {
+			printf("unknown keyword %s\n", line);
+			return -1;
+		}
+
+		if (load_parameters(&newprg, kw, param, linelen - (param - line))) {
+			printf("load_parameters failed on line %d\n", line_num);
+			return -1;
+		}
+
+		fpos += linelen + 1;
+		if (fpos > flen) {
+			printf("fpos > flen\n");
+			return -1;
+		}
+		else if (fpos == flen)
+			break;
 	}
+
 	if (newprg.workdir[0] != '/') {
 		printf("workdir is missing\n");
 		return -1;
@@ -578,7 +491,7 @@ static int program_parse_config(struct program *prg, char *filename,
 		printf("cmdline is missing\n");
 		return -1;
 	}
-	memcpy(prg, &newprg, sizeof(struct program));
+	memcpy(prg_out, &newprg, sizeof(struct program));
 	return 0;
 }
 
@@ -624,7 +537,7 @@ static int program_load_config(struct program *prg, char *filename)
 	char cfg_path[PRG_PATHLEN];
 	char fbuf[PRG_CONFIG_SIZE];
 	struct stat st;
-	size_t fsize;
+	size_t flen;
 	int fd;
 	int r;
 
@@ -632,9 +545,9 @@ static int program_load_config(struct program *prg, char *filename)
 	memset(prg, 0, sizeof(struct program));
 
 	/* assemble path */
-	r = snprintf(cfg_path, sizeof(cfg_path), "%s/%s", PRG_CONFIGS_DIR, filename);
-	if (r >= (int)sizeof(cfg_path)) {
-		printf("program config path too long: %s\n", filename);
+	r = es_sprintf(cfg_path,sizeof(cfg_path),NULL,"%s/%s",PRG_CONFIGS_DIR,filename);
+	if (r) {
+		printf("program config path too long: %s\n", cfg_path);
 		return -1;
 	}
 
@@ -659,10 +572,10 @@ static int program_load_config(struct program *prg, char *filename)
 		printf("problem reading program config: %s\n", cfg_path);
 		return -1;
 	}
-	fsize = r;
+	flen = r;
 
 	/* fill out program struct */
-	if (program_parse_config(prg, filename, fbuf, fsize)) {
+	if (program_parse_config(prg, filename, fbuf, flen)) {
 		printf("config(%s) parse error\n", cfg_path);
 		return -1;
 	}
@@ -680,7 +593,7 @@ static int check_filename(char *name)
 	if (len == 0 || len >= NAME_MAX) {
 		return -1;
 	}
-	if (len >= PRG_NAMELEN - 1) {
+	if (len >= PRG_NAMELEN) {
 		printf("program max namelen: %d\n", PRG_NAMELEN);
 		return -1;
 	}
@@ -787,7 +700,7 @@ int program_load_configs_dir(int pipeout)
 		else if (r < 0)
 			goto failure;
 		else if (r >= PRG_NAMELEN) {
-			printf("max config name length is %d\n", PRG_NAMELEN-1);
+			printf("max config name length is %d\n", PRG_NAMELEN);
 			goto failure;
 		}
 

@@ -23,6 +23,8 @@
 #include <sys/syscall.h>
 #include <syscall.h>
 
+#include "eslib/eslib.h"
+
 #define ROOT_MNTPOINT "/newrootfs"
 #ifndef MAX_SYSTEMPATH
 	#define MAX_SYSTEMPATH 4095
@@ -82,7 +84,11 @@ static int recurse_rm(char *path)
 			}
 		}
 
-		snprintf(next_path, sizeof(next_path), "%s/%s", path, dent->d_name);
+		if (es_sprintf(next_path, sizeof(next_path),
+					NULL, "%s/%s", path, dent->d_name)) {
+			printf("recurse pathlen error\n");
+			continue;
+		}
 		if (dent->d_type == DT_DIR) {
 			/* recurse through directories */
 			recurse_rm(next_path);

@@ -25,13 +25,14 @@ DEFLANG := -ansi
 INIT_SRCS := 	./init.c		\
 		./cmdline.c		\
 		./program.c		\
+		./eslib/eslib_string.c	\
 		./shutdown.nomain.c
 INIT_OBJS := $(INIT_SRCS:.c=.o)
 
 SHUTDOWN_SRCS := ./shutdown.c
 SHUTDOWN_OBJS := $(SHUTDOWN_SRCS:.c=.o)
 
-INITRAM_SRCS := ./initram.c ./cmdline.c
+INITRAM_SRCS := ./initram.c ./cmdline.c ./eslib/eslib_string.c
 INITRAM_OBJS := $(INITRAM_SRCS:.c=.o)
 
 TESTDAEMON_SRCS := ./testdaemon.c

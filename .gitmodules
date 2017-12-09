@@ -1,0 +1,3 @@
+[submodule "eslib"]
+	path = eslib
+	url = https://github.com/mtirado/eslib.git

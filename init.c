@@ -54,6 +54,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "eslib/eslib.h"
 #include "program.h"
 
 #ifndef INIT_PROGRAM
@@ -336,7 +337,7 @@ static int open_tty(char *tty_num, int hangup, int clear)
 		return -1;
 	}
 
-	snprintf(ttypath, sizeof(ttypath), "/dev/tty%s", tty_num);
+	es_sprintf(ttypath, sizeof(ttypath), NULL, "/dev/tty%s", tty_num);
 	if (chown(ttypath, 0, 0) || chmod(ttypath, 0600)) {
 		printf("%s: chown/chmod %s\n", ttypath, strerror(errno));
 		return -1;

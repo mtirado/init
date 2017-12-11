@@ -20,10 +20,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <dirent.h>
-#include "program.h"
+#include <linux/capability.h>
 
+#include "program.h"
 #include "eslib/eslib.h"
-#include "eslib/eslib_fortify.h"
 
 #define is_whitespace(ch) (ch == ' ' || ch == '\t')
 
@@ -239,6 +239,67 @@ static int load_cmdline(struct program *prg, char *params, const size_t len)
 	return 0;
 }
 
+static int load_capabilities(struct program *prg, char *params, const size_t len)
+{
+	unsigned char *caps;
+	char *capset;
+	char *capname;
+	size_t pos = 0;
+	unsigned int advance;
+	unsigned int i;
+
+	if (len >= MAX_CAPLINE) {
+		printf("max capline: %d\n", MAX_CAPLINE);
+		return -1;
+	}
+
+	capset = eslib_string_toke(params, pos, len, &advance);
+	pos += advance;
+	if (capset == NULL)
+		goto err_capset;
+
+	if (strncmp(params, "ambient", 8) == 0) {
+		caps = prg->a_capabilities;
+	}
+	else if (strncmp(params, "inherit", 10) == 0) {
+		caps = prg->i_capabilities;
+	}
+	else if (strncmp(params, "unbound", 9) == 0) {
+		caps = prg->b_capabilities;
+	}
+	else {
+		goto err_capset;
+	}
+
+	while (pos < len)
+	{
+		int capnum;
+
+		capname = eslib_string_toke(params, pos, len, &advance);
+		if (capname == NULL)
+			break;
+		pos += advance;
+
+		capnum = cap_getnum(capname);
+		if (capnum < 0) {
+			/* fully capable root */
+			if (strncmp(capname, "FULLY_CAPABLE", 14) == 0) {
+				for (i = 0; i < NUM_OF_CAPS; ++i)
+					caps[i] = 1;
+				return 0;
+			}
+			printf("unknown capname: %s\n", capname);
+			return -1;
+		}
+		caps[capnum] = 1;
+	}
+	return 0;
+
+err_capset:
+	printf("capable missing set (ambient, inherit, or unbound)\n");
+	return -1;
+}
+
 static int parse_tty(struct program *prg, char *params, const size_t len)
 {
 	int32_t ttynum;
@@ -371,9 +432,10 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 		break;
 
 	case KW_CAPABLE:
-		/* TODO */
-		printf("TODO KW_CAPABLE\n");
-		return -1;
+		if (load_capabilities(prg, params, len)) {
+			printf("load_capabilities\n");
+			return -1;
+		}
 		break;
 
 	default:

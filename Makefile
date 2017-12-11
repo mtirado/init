@@ -16,6 +16,11 @@ DEFINES := -DMAX_SYSTEMPATH=1024 			\
 	   -DSHUTDOWN_PROGRAM=\"$(SHUTDOWN_PROGRAM)\"
 
 CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
+
+# remove unused code from eslb
+CFLAGS  += -ffunction-sections
+LDFLAGS := -Wl,--gc-sections
+
 DEFLANG := -ansi
 #DBG	:= -g
 
@@ -25,8 +30,9 @@ DEFLANG := -ansi
 INIT_SRCS := 	./init.c		\
 		./cmdline.c		\
 		./program.c		\
+		./shutdown.nomain.c	\
 		./eslib/eslib_string.c	\
-		./shutdown.nomain.c
+		./eslib/eslib_fortify.c
 INIT_OBJS := $(INIT_SRCS:.c=.o)
 
 SHUTDOWN_SRCS := ./shutdown.c

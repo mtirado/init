@@ -6,6 +6,9 @@
 #ifndef PROGRAM_H__
 #define PROGRAM_H__
 
+#include "eslib/eslib_fortify.h"
+#define MAX_CAPLINE 4096
+
 #ifndef PRG_CONFIGS_DIR
 	#define PRG_CONFIGS_DIR "/etc/init/programs"
 #endif
@@ -55,6 +58,9 @@ struct program {
 	char name[PRG_NAMELEN+1];
 	char ttynum[PRG_TTYLEN+1];
 	char workdir[PRG_PATHLEN+1];
+	unsigned char a_capabilities[NUM_OF_CAPS];
+	unsigned char b_capabilities[NUM_OF_CAPS];
+	unsigned char i_capabilities[NUM_OF_CAPS];
 	pid_t pid; /* filled out by pid1 after forking */
 	uid_t uid;
 	gid_t gid;

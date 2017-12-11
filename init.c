@@ -44,6 +44,7 @@
 #include <sys/ioctl.h>
 #include <sys/reboot.h>
 #include <sys/mount.h>
+#include <sys/prctl.h>
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
@@ -53,6 +54,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+#include <linux/securebits.h>
+#include <linux/capability.h>
+extern int capset(cap_user_header_t header, cap_user_data_t data);
 
 #include "eslib/eslib.h"
 #include "program.h"
@@ -408,23 +413,158 @@ static int open_tty(char *tty_num, int hangup, int clear)
 
 }
 
-/* TODO capability bounding set from whitelist /etc/file */
-static int downgrade_process(uid_t uid, gid_t gid)
+static int prg_set_caps(unsigned char *cap_b,
+		    unsigned char *cap_e,
+		    unsigned char *cap_p,
+		    unsigned char *cap_i,
+		    unsigned long secbits)
 {
-	int r = 0;
-	if (gid != 0) {
-		if (setregid(gid, gid)) {
-			printf("setgid(%d): %s\n", gid, strerror(errno));
-			r = -1;
+	struct __user_cap_header_struct hdr;
+	struct __user_cap_data_struct   data[2];
+	unsigned int i;
+	memset(&hdr, 0, sizeof(hdr));
+	memset(data, 0, sizeof(data));
+	hdr.version = _LINUX_CAPABILITY_VERSION_3;
+
+	for(i = 0; i < NUM_OF_CAPS; ++i)
+	{
+		if (cap_e && cap_e[i] == 1) {
+			data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
+		}
+		if (cap_p && cap_p[i] == 1) {
+			data[CAP_TO_INDEX(i)].permitted	|= CAP_TO_MASK(i);
+		}
+		if (cap_i && cap_i[i] == 1) {
+			data[CAP_TO_INDEX(i)].inheritable |= CAP_TO_MASK(i);
+		}
+
+		/* clear bounding set unless requested or inheriting */
+		if (cap_b && cap_b[i] == 1)
+			continue;
+		if (cap_i && cap_i[i] == 1)
+			continue;
+		if (prctl(PR_CAPBSET_DROP, i, 0, 0, 0)) {
+			if (i > CAP_LAST_CAP) {
+				break;
+			}
+			else if (errno == EINVAL) {
+				printf("cap not found: %d\n", i);
+				return -1;
+			}
+			printf("PR_CAPBSET_DROP: %s\n", strerror(errno));
+			return -1;
 		}
 	}
-	if (uid != 0) {
-		if (setreuid(uid, uid)) {
-			printf("setuid(%d): %s\n", uid, strerror(errno));
-			r = -1;
+
+	if (secbits) {
+		if (prctl(PR_SET_SECUREBITS, secbits)) {
+			printf("prctl(): %s\n", strerror(errno));
+			return -1;
 		}
 	}
-	return r;
+	if (capset(&hdr, data)) {
+		printf("capset: %s\n", strerror(errno));
+		printf("cap version: %p\n", (void *)hdr.version);
+		printf("pid: %d\n", hdr.pid);
+		return -1;
+	}
+	return 0;
+}
+
+static int downgrade_process(struct program *prg)
+{
+	unsigned char  full_caps[NUM_OF_CAPS];
+	unsigned char  e_caps[NUM_OF_CAPS];
+	unsigned char  p_caps[NUM_OF_CAPS];
+	unsigned char *a_caps = prg->a_capabilities;
+	unsigned char *b_caps = prg->b_capabilities;
+	unsigned char *i_caps = prg->i_capabilities;
+	uid_t uid = prg->uid;
+	gid_t gid = prg->gid;
+	unsigned long secbits = 0;
+	int inheriting = 0;
+	int active_caps = 0;
+	int once = 1;
+	unsigned int i;
+
+	memset(e_caps, 0, sizeof(e_caps));
+	memset(p_caps, 0, sizeof(p_caps));
+	memset(full_caps, 1, sizeof(full_caps));
+
+	/* a and i cannot be mixed */
+	for (i = 0; i < NUM_OF_CAPS; ++i) {
+		if (i_caps[i]) {
+			inheriting = 1;
+			for (i = 0; i < NUM_OF_CAPS; ++i) {
+				if (a_caps[i]) {
+					printf("cannot mix ambient with inherit\n");
+					return -1;
+				}
+			}
+			break;
+		}
+	}
+
+	for (i = 0; i < NUM_OF_CAPS; ++i) {
+
+		if (a_caps[i]) {
+			if (once) {
+				/* raising ambient requires inheritable */
+				if (prg_set_caps(full_caps, full_caps,
+							full_caps, a_caps, 0)) {
+					printf("prg_set_caps failed\n");
+					return -1;
+				}
+				once = 0;
+			}
+			if (prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, i, 0, 0)) {
+				printf("prctl(CAP_AMBIENT_RAISE): %s\n", strerror(errno));
+				return -1;
+			}
+			active_caps = 1;
+			b_caps[i] = 1;
+			i_caps[i] = 1;
+		}
+		if (i_caps[i]) {
+			active_caps = 1;
+			b_caps[i] = 1;
+			e_caps[i] = 1;
+			p_caps[i] = 1;
+			if (uid == 0) {
+				/* inheritable set for non-root users only */
+				i_caps[i] = 0;
+			}
+		}
+	}
+	if (active_caps) {
+		secbits |= SECBIT_NO_SETUID_FIXUP
+			|  SECBIT_NO_SETUID_FIXUP_LOCKED;
+	}
+
+	if (gid && setresgid(gid, gid, gid)) {
+		printf("setgid(%d): %s\n", gid, strerror(errno));
+		return -1;
+	}
+
+	e_caps[CAP_SETUID] = 1;
+	p_caps[CAP_SETUID] = 1;
+	if (prg_set_caps(b_caps, e_caps, p_caps, i_caps, secbits)) {
+		printf("prg_set_caps failed\n");
+		return -1;
+	}
+	if (uid && setresuid(uid, inheriting ? 0 : uid, uid)) {
+		printf("setuid(%d): %s\n", uid, strerror(errno));
+		return -1;
+	}
+	if (active_caps) {
+		/* prevents the inheriting 0 uid above from being carried over
+		 * to saved-set on exec, this is not as important for ambient. */
+		if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+			printf("could not set no new privs:%s\n", strerror(errno));
+			return -1;
+		}
+	}
+	return 0;
 }
 
 static int check_permission(struct program *prg)
@@ -610,7 +750,7 @@ static int spawn(struct program *prg)
 		printf("chdir(%s): %s\n", prg->workdir, strerror(errno));
 		_exit(-1);
 	}
-	if (downgrade_process(prg->uid, prg->gid)) {
+	if (downgrade_process(prg)) {
 		_exit(-1);
 		printf("error: could not set uid\n");
 	}

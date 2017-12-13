@@ -2,5 +2,7 @@
 if [ "$DISPLAY" = "" ]; then
 	export DISPLAY=:1
 fi
+sleep 4
+fluxbox &
 sleep 1
-Xorg -config ~/sporg.conf -logfile "sporg.log$DISPLAY" $DISPLAY &
+xrdb -load ~/.Xresources

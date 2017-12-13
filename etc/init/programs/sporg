@@ -1,6 +1,7 @@
-uid 1000
-gid 100
+# uid for running this specific instance of xorg x11 and nothing else
+uid 8000
+gid 80
 respawn 0
-workdir /home/user
+workdir /home/sporg
 cmdline /bin/bash /etc/init/scripts/sporg.sh
-environ PATH=/bin:/usr/bin:/usr/local/bin TERM=linux USER=user LOGNAME=user HOME=/home/user
+environ PATH=/bin:/usr/bin:/usr/local/bin TERM=linux USER=sporg LOGNAME=sporg HOME=/home/sporg

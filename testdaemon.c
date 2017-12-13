@@ -33,7 +33,7 @@ static void print_info(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
 	char mode = 0;
-	getpid();
+	pid_t pid = getpid();
 
 	if (argc < 1) {
 		printf("bad argument count\n");
@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
 		case 's':
 			while(1)
 			{
-				usleep(100000000);
+				usleep(15000000);
 			}
 			break;
 		case 'i':

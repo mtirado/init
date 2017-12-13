@@ -71,13 +71,11 @@ extern int capset(cap_user_header_t header, cap_user_data_t data);
 #ifndef CRASH_PANIC
 	#define CRASH_PANIC 0 /* exit pid1 on panic? */
 #endif
-#ifndef MAX_PERSISTENT
-	#define MAX_PERSISTENT 16
-#endif
 
 /* attempt to keep going if program launcher fails */
 #define PROGFAIL_NOPANIC
 
+extern struct program g_programs[MAX_PERSISTENT];
 extern char **environ;
 
 /* cmdline.c */
@@ -506,7 +504,6 @@ static int downgrade_process(struct program *prg)
 	}
 
 	for (i = 0; i < NUM_OF_CAPS; ++i) {
-
 		if (a_caps[i]) {
 			if (once) {
 				/* raising ambient requires inheritable */
@@ -845,6 +842,7 @@ static int read_program_pipe(int fd, struct program *programs,
 	if (r != sizeof(prog_count))
 		goto failure;
 	if (prog_count > max_persistent) {
+		printf("too many programs (%d/%d)\n", prog_count, max_persistent);
 		goto failure;
 	}
 	else if (prog_count == 0) {
@@ -877,17 +875,93 @@ failure:
 	return -1;
 }
 
-static int spawn_programs(struct program *programs, const unsigned int count)
+static void insert_at(struct program *prg,
+		      struct program *order[],
+		      unsigned int idx,
+		      const unsigned int count)
+{
+	struct program *insert = prg;
+	unsigned int i;
+	for (i = idx; i < count; ++i)
+	{
+		struct program *tmp = order[i];
+		order[i] = insert;
+		insert = tmp;
+	}
+}
+
+/* FIXME, fully sort programs with same "after" to prevent programs inserted later
+ * from delaying an earlier program that could have been run sooner.
+ */
+static int sort_order(struct program *prg,
+		     struct program *order[],
+		     const unsigned int count)
 {
 	unsigned int i;
+
+	/* don't add twice */
+	for (i = 0; i < count; ++i)
+	{
+		if (order[i] == NULL)
+			break;
+		if (strncmp(order[i]->name, prg->name, PRG_NAMELEN) == 0) {
+			return 0;
+		}
+	}
+
+	/* to front of list if no dependencies */
+	if (prg->after[0] == '\0') {
+		insert_at(prg, order, 0, count);
+		return 0;
+	}
+
+	for (i = 0; i < count - 1; ++i)
+	{
+		if (order[i] == NULL) {
+			break;
+		}
+		else if (!strncmp(order[i]->name, prg->after, PRG_NAMELEN)) {
+			insert_at(prg, order, i+1, count);
+			return 0;
+		}
+	}
+	return -1; /* after was not found (yet) */
+}
+
+
+
+static int spawn_programs(struct program *programs, const unsigned int count)
+{
+	unsigned int i, z;
+	struct program *order[MAX_PERSISTENT];
+
+	memset(order, 0, sizeof(order));
 	for(i = 0; i < count; ++i)
 	{
-		if (spawn(&programs[i])) {
+		int not_finished = 0;
+		for(z = 0; z < count; ++z)
+			if (sort_order(&programs[z], order, count))
+				not_finished = 1;
+		if (not_finished == 0)
+			break;
+	}
+	if (i >= count) {
+		printf("problem sorting programs, circular dependency?\n");
+		return -1;
+	}
+
+	for(i = 0; i < count; ++i)
+	{
+		if (order[i] == NULL) {
+			return -1;
+		}
+		if (spawn(order[i])) {
 			printf("spawn failed\n");
 			return -1;
 		}
 	}
 	return 0;
+
 }
 
 static int configs_dir_exists()
@@ -992,11 +1066,9 @@ close_err:
 
 int main()
 {
-	struct program prg[MAX_PERSISTENT];
-
 	g_firstspawn = 1;
 	g_terminating = 0;
-	memset(&prg, 0, sizeof(prg));
+	memset(&g_programs, 0, sizeof(g_programs));
 	setsid();
 	umask(022);
 	setenv("PATH", DEFAULT_PATH, 1);
@@ -1023,7 +1095,7 @@ int main()
 		}
 	}
 
-	if (load_programs(prg, MAX_PERSISTENT)) {
+	if (load_programs(g_programs, MAX_PERSISTENT)) {
 		printf("load_programs critical failure\n");
 #ifndef PROGFAIL_NOPANIC
 		panic();
@@ -1032,7 +1104,7 @@ int main()
 	g_firstspawn = 0;
 
 	/* now we wait! */
-	wait_loop(prg);
+	wait_loop(g_programs);
 
 	panic();
 	return -1;

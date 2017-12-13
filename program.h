@@ -7,7 +7,11 @@
 #define PROGRAM_H__
 
 #include "eslib/eslib_fortify.h"
+
 #define MAX_CAPLINE 4096
+#ifndef MAX_PERSISTENT
+	#define MAX_PERSISTENT 32
+#endif
 
 #ifndef PRG_CONFIGS_DIR
 	#define PRG_CONFIGS_DIR "/etc/init/programs"
@@ -66,13 +70,12 @@ struct program {
 	gid_t gid;
 	int respawn; /* -1 for unlimited respawns */
 	struct timespec last_spawn;
-
+	char after[PRG_NAMELEN+1]; /* we are after this program */
 	/* when file io process sends program to pid1, the pointers are relative
 	 * from beginning of struct; they point to data in the above arrays */
 	char *environ[PRG_NUM_ENVIRON+1]; /* + 1 for sentinel */
 	char *argv[PRG_NUM_ARGUMENTS+1];
 	char *binpath;
-
 };
 
 /* load all programs in configs dir */

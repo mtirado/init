@@ -25,8 +25,6 @@
 #include "program.h"
 #include "eslib/eslib.h"
 
-#define is_whitespace(ch) (ch == ' ' || ch == '\t')
-
 /*
  * workdir	- working directory for execve
  * cmdline	- absolute path to binary with arguments
@@ -53,6 +51,7 @@ enum {
 	KW_GID,
 	KW_TTY,
 	KW_CAPABLE,
+	KW_AFTER,
 	KWCOUNT
 };
 #define KWSIZE 8 /* + terminator */
@@ -64,8 +63,12 @@ const char cfg_keywords[KWCOUNT][KWSIZE] = {
 	"uid",
 	"gid",
 	"tty",
-	"capable"
+	"capable",
+	"after"
 };
+
+struct program g_programs[MAX_PERSISTENT];
+
 
 static char *program_relative_ptr(struct program *prg, char *ptr)
 {
@@ -237,6 +240,31 @@ static int load_cmdline(struct program *prg, char *params, const size_t len)
 		return -1;
 	}
 	return 0;
+}
+
+static int load_after(struct program *prg, char *params, const size_t len)
+{
+	char *after_name;
+	unsigned int advance;
+	size_t pos = 0;
+
+	if (len >= PRG_NAMELEN) {
+		printf("max namelen: %d\n", PRG_NAMELEN);
+		return -1;
+	}
+
+	after_name = eslib_string_toke(params, pos, len, &advance);
+	if (after_name == NULL) {
+		printf("missing after program name\n");
+		return -1;
+	}
+	if (strncmp(prg->name, after_name, PRG_NAMELEN) == 0) {
+		printf("circular program ordering, impossible to resolve\n");
+		return -1;
+	}
+	es_strcopy(prg->after, after_name, PRG_NAMELEN, NULL);
+	return 0;
+
 }
 
 static int load_capabilities(struct program *prg, char *params, const size_t len)
@@ -434,6 +462,13 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 	case KW_CAPABLE:
 		if (load_capabilities(prg, params, len)) {
 			printf("load_capabilities\n");
+			return -1;
+		}
+		break;
+
+	case KW_AFTER:
+		if (load_after(prg, params, len)) {
+			printf("load_after\n");
 			return -1;
 		}
 		break;

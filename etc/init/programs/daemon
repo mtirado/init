@@ -4,3 +4,4 @@ respawn 9
 workdir /home/daemon
 cmdline /bin/testdaemon sleep
 environ PATH=/bin:/usr/bin TERM=void USER=daemon LOGNAME=daemon HOME=/home/daemon
+capable ambient CAP_SYS_ADMIN CAP_SYS_CHROOT CAP_SYS_PTRACE

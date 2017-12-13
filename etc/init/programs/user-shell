@@ -5,3 +5,4 @@ respawn -1
 workdir /home/user
 cmdline /usr/bin/bash --login
 environ PATH=/bin:/usr/bin TERM=linux USER=user LOGNAME=user HOME=/home/user
+capable unbound FULLY_CAPABLE

@@ -34,11 +34,12 @@
  * gid		- group id
  * tty		- stdio, default is 0 (console). TODO negative could be for daemons
  * capable	- leave caps in bounding set "cap_net_bind_service cap_syslog etc"
+ * wait         - sleep for some number of milliseconds before next program spawn.
+ *                if a file path is also supplied, unlink file before exec, and
+ *                cancel sleep when that file reappears. this is only done once
+ *                during system init, not for respawns.
  *
  * TODO:
- * wait		- block for milliseconds while checking for exit status to detect
- *		  failures, adding time to boot process.
- * after	- set launch ordering, error on circular dependency.
  * critical	- init failure if program fails to launch, failure option can be to
  * 		  prevent launching any more programs, shut down, or halt system
  */
@@ -52,6 +53,7 @@ enum {
 	KW_TTY,
 	KW_CAPABLE,
 	KW_AFTER,
+	KW_WAIT,
 	KWCOUNT
 };
 #define KWSIZE 8 /* + terminator */
@@ -64,7 +66,8 @@ const char cfg_keywords[KWCOUNT][KWSIZE] = {
 	"gid",
 	"tty",
 	"capable",
-	"after"
+	"after",
+	"wait"
 };
 
 struct program g_programs[MAX_PERSISTENT];
@@ -79,7 +82,7 @@ static char *program_absolute_ptr(struct program *prg, char *ptr)
 	return (char *)((size_t)prg + (size_t)ptr);
 }
 
-/* convert in-flight relative poitners to absolute */
+/* convert in-flight relative pointers to absolute */
 int program_land(struct program *prg)
 {
 	int i;
@@ -265,6 +268,47 @@ static int load_after(struct program *prg, char *params, const size_t len)
 	es_strcopy(prg->after, after_name, PRG_NAMELEN, NULL);
 	return 0;
 
+}
+
+static int load_wait(struct program *prg, char *params, const size_t len)
+{
+	char *millisec;
+	char *wait_file;
+	unsigned int advance;
+	uint32_t uint_read;
+	size_t pos = 0;
+
+	millisec = eslib_string_toke(params, pos, len, &advance);
+	pos += advance;
+	if (millisec == NULL) {
+		printf("missing milliseconds\n");
+		return -1;
+	}
+
+	if (eslib_string_to_u32(params, &uint_read, 10)) {
+		printf("bad int value\n");
+		return -1;
+	}
+	if (uint_read > PRG_MAX_SLEEP) {
+		printf("sleep too long, (%d / %d)\n", uint_read, PRG_MAX_SLEEP);
+		return -1;
+	}
+	prg->sleep = uint_read;
+
+	wait_file = eslib_string_toke(params, pos, len, &advance);
+	if (wait_file == NULL)
+		return 0; /* no file, just sleep */
+
+	if (wait_file[0] != '/') {
+		printf("wait file must be an absolute path\n");
+		return -1;
+	}
+	if (es_strcopy(prg->wait_file, wait_file, PRG_PATHLEN, NULL)) {
+		printf("wait file path too long, max len is %d\n", PRG_PATHLEN);
+		return -1;
+	}
+
+	return 0;
 }
 
 static int load_capabilities(struct program *prg, char *params, const size_t len)
@@ -469,6 +513,13 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 	case KW_AFTER:
 		if (load_after(prg, params, len)) {
 			printf("load_after\n");
+			return -1;
+		}
+		break;
+
+	case KW_WAIT:
+		if (load_wait(prg, params, len)) {
+			printf("load_wait\n");
 			return -1;
 		}
 		break;

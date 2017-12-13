@@ -4,6 +4,9 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include "eslib/eslib.h"
 
 extern char **environ;
 pid_t pid;
@@ -29,10 +32,13 @@ static void print_info(int argc, char *argv[])
 	}
 }
 
-/* TODO, option to set respawn counter in environ */
 int main(int argc, char *argv[])
 {
+	uint32_t count = 1;
+	uint32_t i = 0;
 	char mode = 0;
+	char *wait_file = getenv("WAIT_FILE");
+
 	pid_t pid = getpid();
 
 	if (argc < 1) {
@@ -42,21 +48,32 @@ int main(int argc, char *argv[])
 	else if (argc >= 2) {
 		mode = argv[1][0];
 	}
+	if (argc >= 3) {
+		if (eslib_string_to_u32(argv[2], &count, 10)) {
+			printf("bad count argument\n");
+		}
+	}
 
-	printf("[%d] daemon spawned   mode=%c\n", pid, mode);
+	printf("[%d] %s spawned   mode=%c\n", pid, argv[0], mode);
 	switch (mode)
 	{
 		case 's':
-			while(1)
-			{
-				usleep(15000000);
-			}
+			for (i = 0; i < count; ++i)
+				usleep(1000000);
 			break;
 		case 'i':
 		default:
 			print_info(argc, argv);
 			break;
 	}
+	if (wait_file) {
+		if (open(wait_file, O_CREAT|O_TRUNC|O_WRONLY, 0750) == -1)
+			printf("wait_file(%s) open: %s\n", wait_file, strerror(errno));
+		else
+			printf("[%d] %s created wait_file %s\n", pid, argv[0], wait_file);
+	}
+
 	printf("[%d] %s exiting\n", pid, argv[0]);
+
 	return 0;
 }

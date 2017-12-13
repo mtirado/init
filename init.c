@@ -643,25 +643,12 @@ static int check_spawn_timer(struct program *prg)
 	return 0;
 }
 
-static int check_program(struct program *prg)
+static void print_stats(struct program *prg)
 {
 	unsigned int i;
-
-	if (check_spawn_timer(prg))
-		return -1;
-	if (prg->name[0] == '\0' || prg->workdir[0] != '/' || prg->binpath[0] != '/')
-		return -1;
-	if (prg->name[PRG_NAMELEN-1] != '\0'
-			|| prg->workdir[PRG_PATHLEN-1] != '\0'
-			|| prg->cmdline[PRG_CMDLEN-1] != '\0'
-			|| prg->environ_data[PRG_ENVLEN-1] != '\0'
-			|| prg->ttynum[PRG_TTYLEN-1] != '\0') {
-		return -1;
-	}
-
 	printf("\n");
 	printf("------------------------------------------------------------\n");
-	printf("load: %s\n", prg->name);
+	printf("spawn: %s\n", prg->name);
 	printf("------------------------------------------------------------\n");
 	if (prg->ttynum[0] == '\0') {
 		printf("  stdout: /dev/console\n");
@@ -673,6 +660,15 @@ static int check_program(struct program *prg)
 	printf("  uid: %d\n", prg->uid);
 	printf("  gid: %d\n", prg->gid);
 	printf("  respawn: %d\n", prg->respawn);
+	if (prg->after[0] != '\0') {
+		printf("  after: %s\n", prg->after);
+	}
+	if (prg->sleep) {
+		printf("  sleep: %d\n", prg->sleep);
+	}
+	if (prg->wait_file[0] == '/') {
+		printf("  wait_file: %s\n", prg->wait_file);
+	}
 	printf("  arguments: ");
 	for (i = 0; i < PRG_NUM_ARGUMENTS; ++i)
 	{
@@ -690,6 +686,25 @@ static int check_program(struct program *prg)
 	}
 	printf("\n");
 
+}
+
+static int check_program(struct program *prg)
+{
+	if (check_spawn_timer(prg))
+		return -1;
+	if (prg->name[0] == '\0' || prg->workdir[0] != '/' || prg->binpath[0] != '/')
+		return -1;
+	if (prg->name[PRG_NAMELEN] != '\0'
+			|| prg->workdir[PRG_PATHLEN] != '\0'
+			|| prg->cmdline[PRG_CMDLEN] != '\0'
+			|| prg->environ_data[PRG_ENVLEN] != '\0'
+			|| prg->ttynum[PRG_TTYLEN] != '\0'
+			|| prg->after[PRG_NAMELEN] != '\0'
+			|| prg->wait_file[PRG_PATHLEN] != '\0') {
+		return -1;
+	}
+
+	print_stats(prg);
 	if (check_permission(prg))
 		return -1;
 	return 0;
@@ -928,7 +943,49 @@ static int sort_order(struct program *prg,
 	return -1; /* after was not found (yet) */
 }
 
+static int spawn_pre_exec(struct program *prg)
+{
+	struct stat st;
+	if (prg->wait_file[0] == '/') {
+		if (stat(prg->wait_file, &st)) {
+			if (errno == ENOENT)
+				goto non_existing;
+		}
+		if (S_ISDIR(st.st_mode)) {
+			printf("error, wait file cannot be a directory\n");
+			goto file_error;
+		}
+		if (unlink(prg->wait_file) && errno != ENOENT) {
+			printf("wait file unlink: %s\n", strerror(errno));
+			goto file_error;
+		}
+	}
+	return 0;
 
+file_error:
+	memset(prg->wait_file, 0, sizeof(prg->wait_file));
+	return -1;
+non_existing:
+	return 0;
+}
+
+static int spawn_post_exec(struct program *prg)
+{
+	unsigned int i;
+	if (prg->wait_file[0] == '/') {
+		for (i = 0; i < prg->sleep; ++i)
+		{
+			struct stat st;
+			wait_millisec(1);
+			if (stat(prg->wait_file, &st) == 0)
+				return 0; /* wait_file has emerged */
+		}
+	}
+	else {
+		wait_millisec(prg->sleep);
+	}
+	return 0;
+}
 
 static int spawn_programs(struct program *programs, const unsigned int count)
 {
@@ -955,10 +1012,13 @@ static int spawn_programs(struct program *programs, const unsigned int count)
 		if (order[i] == NULL) {
 			return -1;
 		}
+
+		spawn_pre_exec(order[i]);
 		if (spawn(order[i])) {
 			printf("spawn failed\n");
 			return -1;
 		}
+		spawn_post_exec(order[i]);
 	}
 	return 0;
 

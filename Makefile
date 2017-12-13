@@ -41,7 +41,7 @@ SHUTDOWN_OBJS := $(SHUTDOWN_SRCS:.c=.o)
 INITRAM_SRCS := ./initram.c ./cmdline.c ./eslib/eslib_string.c
 INITRAM_OBJS := $(INITRAM_SRCS:.c=.o)
 
-TESTDAEMON_SRCS := ./testdaemon.c
+TESTDAEMON_SRCS := ./testdaemon.c ./eslib/eslib_string.c
 TESTDAEMON_OBJS := $(TESTDAEMON_SRCS:.c=.o)
 
 ########################################

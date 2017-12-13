@@ -52,7 +52,9 @@
 #ifndef PRG_RAPID_RESPAWN_USECS
 	#define PRG_RAPID_RESPAWN_USECS (1000 * 300) /* 300 millisec */
 #endif
-
+#ifndef PRG_MAX_SLEEP
+	#define PRG_MAX_SLEEP (1000 * 60 * 60 * 12) /* 12 hour */
+#endif
 struct program {
 	/* avoid relative pointer to addr 0, considered as argv/environ sentinel */
 	unsigned int unused_relative_addr_0;
@@ -69,8 +71,10 @@ struct program {
 	uid_t uid;
 	gid_t gid;
 	int respawn; /* -1 for unlimited respawns */
+	unsigned int sleep;
 	struct timespec last_spawn;
 	char after[PRG_NAMELEN+1]; /* we are after this program */
+	char wait_file[PRG_PATHLEN+1]; /* wait for this file after spawn */
 	/* when file io process sends program to pid1, the pointers are relative
 	 * from beginning of struct; they point to data in the above arrays */
 	char *environ[PRG_NUM_ENVIRON+1]; /* + 1 for sentinel */

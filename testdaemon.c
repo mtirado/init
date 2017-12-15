@@ -55,6 +55,13 @@ int main(int argc, char *argv[])
 	}
 
 	printf("[%d] %s spawned   mode=%c\n", pid, argv[0], mode);
+	usleep(300000);
+	if (wait_file) {
+		if (open(wait_file, O_CREAT|O_TRUNC|O_WRONLY, 0750) == -1)
+			printf("wait_file(%s) open: %s\n", wait_file, strerror(errno));
+		else
+			printf("[%d] %s created wait_file %s\n", pid, argv[0], wait_file);
+	}
 	switch (mode)
 	{
 		case 's':
@@ -66,13 +73,6 @@ int main(int argc, char *argv[])
 			print_info(argc, argv);
 			break;
 	}
-	if (wait_file) {
-		if (open(wait_file, O_CREAT|O_TRUNC|O_WRONLY, 0750) == -1)
-			printf("wait_file(%s) open: %s\n", wait_file, strerror(errno));
-		else
-			printf("[%d] %s created wait_file %s\n", pid, argv[0], wait_file);
-	}
-
 	printf("[%d] %s exiting\n", pid, argv[0]);
 
 	return 0;

@@ -9,6 +9,7 @@
 #include "eslib/eslib_fortify.h"
 
 #define MAX_CAPLINE 4096
+
 #ifndef MAX_PERSISTENT
 	#define MAX_PERSISTENT 32
 #endif
@@ -72,6 +73,7 @@ struct program {
 	gid_t gid;
 	int respawn; /* -1 for unlimited respawns */
 	unsigned int sleep;
+	unsigned int status;
 	struct timespec last_spawn;
 	char after[PRG_NAMELEN+1]; /* we are after this program */
 	char wait_file[PRG_PATHLEN+1]; /* wait for this file after spawn */

@@ -91,6 +91,10 @@ int g_firstspawn;
 #define TERM_REBOOT   2
 #define TERM_HALT     3
 
+#define TERMINATOR 1
+#define NOT_TERMINATOR 0
+static void wait_millisec(const unsigned int millisec, int terminator);
+
 static void sighand(int signum)
 {
 	switch (signum)
@@ -155,27 +159,6 @@ static void panic()
 	}
 }
 
-static void wait_millisec(const unsigned int millisec)
-{
-	struct timespec request, remain;
-	unsigned int counter = 0;
-	while (++counter <= millisec)
-	{
-		request.tv_sec  = 0;
-		request.tv_nsec = 1000000;
-		remain.tv_sec   = 0;
-		remain.tv_nsec  = 0;
-re_sleep:
-		errno = 0;
-		if (nanosleep(&request, &remain)) {
-			if (errno == EINTR) {
-				request.tv_nsec = remain.tv_nsec;
-				goto re_sleep;
-			}
-		}
-	}
-}
-
 static void terminator()
 {
 	unsigned int counter;
@@ -190,7 +173,7 @@ static void terminator()
 	counter = 0;
 	while (++counter <= 9000) /* 9+ seconds */
 	{
-		wait_millisec(1);
+		wait_millisec(1, TERMINATOR);
 re_check:
 		p = waitpid(-1, &status, WNOHANG);
 		if (p > 1) {
@@ -212,6 +195,36 @@ re_check:
 		shutdown_fallback(rb_action);
 	}
 	panic();
+}
+
+static void check_termination()
+{
+	if (g_terminating) {
+		terminator();
+	}
+}
+
+static void wait_millisec(const unsigned int millisec, int terminator)
+{
+	struct timespec request, remain;
+	unsigned int counter = 0;
+	while (++counter <= millisec)
+	{
+		request.tv_sec  = 0;
+		request.tv_nsec = 1000000;
+		remain.tv_sec   = 0;
+		remain.tv_nsec  = 0;
+re_sleep:
+		errno = 0;
+		if (nanosleep(&request, &remain)) {
+			if (errno == EINTR) {
+				request.tv_nsec = remain.tv_nsec;
+				goto re_sleep;
+			}
+		}
+		if (!terminator)
+			check_termination();
+	}
 }
 
 /* exec initialization process and look for 0 exit status */
@@ -811,10 +824,7 @@ static void wait_loop(struct program *prg)
 		pid_t p;
 		int status;
 
-		if (g_terminating) {
-			terminator();
-			g_terminating = 0;
-		}
+		check_termination();
 
 		p = waitpid(-1, &status, 0);
 		if (p == -1 && errno != EINTR) {
@@ -890,60 +900,112 @@ failure:
 	return -1;
 }
 
-static void insert_at(struct program *prg,
-		      struct program *order[],
-		      unsigned int idx,
-		      const unsigned int count)
+struct spawn_node {
+	struct spawn_node *next;
+	struct spawn_node *next_level;
+	struct program *prg;
+};
+
+static void add_next(struct spawn_node *at, struct spawn_node *new, struct program *prg)
 {
-	struct program *insert = prg;
-	unsigned int i;
-	for (i = idx; i < count; ++i)
-	{
-		struct program *tmp = order[i];
-		order[i] = insert;
-		insert = tmp;
-	}
+	struct spawn_node *node = at;
+	while (node->next)
+		node = node->next;
+
+	node->next = new;
+	new->prg = prg;
+	new->next = NULL;
 }
 
-/* FIXME, fully sort programs with same "after" to prevent programs inserted later
- * from delaying an earlier program that could have been run sooner.
- */
-static int sort_order(struct program *prg,
-		     struct program *order[],
-		     const unsigned int count)
+
+static void add_next_level(struct spawn_node *at,
+			   struct spawn_node *new,
+			   struct program *prg)
+{
+	if (at->next_level) {
+		struct spawn_node *node = at->next_level;
+		while (node->next)
+			node = node->next;
+		node->next = new;
+	}
+	else {
+		at->next_level = new;
+	}
+	new->prg = prg;
+	new->next = NULL;
+}
+
+/* TODO, instead of sleeping after every exec use a single wait value
+ * for the entire level */
+static int spawn_post_exec(struct program *prg)
 {
 	unsigned int i;
-
-	/* don't add twice */
-	for (i = 0; i < count; ++i)
-	{
-		if (order[i] == NULL)
-			break;
-		if (strncmp(order[i]->name, prg->name, PRG_NAMELEN) == 0) {
-			return 0;
+	if (prg->wait_file[0] == '/') {
+		for (i = 0; i < prg->sleep; ++i)
+		{
+			struct stat st;
+			wait_millisec(1, NOT_TERMINATOR);
+			if (stat(prg->wait_file, &st) == 0)
+				return 0; /* wait_file has emerged */
 		}
 	}
+	else {
+		wait_millisec(prg->sleep, NOT_TERMINATOR);
+	}
+	return 0;
+}
 
-	/* to front of list if no dependencies */
-	if (prg->after[0] == '\0') {
-		insert_at(prg, order, 0, count);
+static int spawn_level(struct spawn_node *level)
+{
+	struct spawn_node *node = level;
+	if (node == NULL)
 		return 0;
-	}
 
-	for (i = 0; i < count - 1; ++i)
-	{
-		if (order[i] == NULL) {
-			break;
+	do {
+		if (spawn(node->prg)) {
+			printf("spawn failed\n");
+			return -1;
 		}
-		else if (!strncmp(order[i]->name, prg->after, PRG_NAMELEN)) {
-			insert_at(prg, order, i+1, count);
-			return 0;
-		}
-	}
-	return -1; /* after was not found (yet) */
+		spawn_post_exec(node->prg);
+		node = node->next;
+	} while (node);
+
+	node = level;
+	do {
+		if (spawn_level(node->next_level))
+			return -1;
+		node = node->next;
+	} while (node);
+	return 0;
 }
 
-static int spawn_pre_exec(struct program *prg)
+static int print_spawn_tree(struct spawn_node *level, unsigned int depth)
+{
+	unsigned int indent = depth;
+	struct spawn_node *node;
+	if (level == NULL)
+		return 0;
+	while(indent--)
+		printf("    ");
+	printf("%s ", level->prg->name);
+	node = level->next;
+	while (node)
+	{
+		printf("----> %s ", node->prg->name);
+		node = node->next;
+	}
+	printf("\n");
+	node = level;
+	while (node)
+	{
+		if (print_spawn_tree(node->next_level, depth + 1))
+			return -1;
+		node = node->next;
+	}
+	return 0;
+}
+
+static int spawn_unlink_waitfile(struct program *prg)
 {
 	struct stat st;
 	if (prg->wait_file[0] == '/') {
@@ -969,59 +1031,98 @@ non_existing:
 	return 0;
 }
 
-static int spawn_post_exec(struct program *prg)
+static int spawn_prepare(struct spawn_node *level)
 {
-	unsigned int i;
-	if (prg->wait_file[0] == '/') {
-		for (i = 0; i < prg->sleep; ++i)
-		{
-			struct stat st;
-			wait_millisec(1);
-			if (stat(prg->wait_file, &st) == 0)
-				return 0; /* wait_file has emerged */
+	struct spawn_node *node = level;
+	if (node == NULL)
+		return 0;
+
+	do {
+		if (spawn_unlink_waitfile(node->prg)) {
+			printf("spawn_prepare failed\n");
+			return -1;
 		}
-	}
-	else {
-		wait_millisec(prg->sleep);
-	}
+		node = node->next;
+	} while (node);
+
+	node = level;
+	do {
+		if (spawn_prepare(node->next_level))
+			return -1;
+		node = node->next;
+	} while (node);
 	return 0;
 }
 
 static int spawn_programs(struct program *programs, const unsigned int count)
 {
-	unsigned int i, z;
-	struct program *order[MAX_PERSISTENT];
+	struct spawn_node tree[MAX_PERSISTENT];
+	unsigned int i, x, z;
+	unsigned int new;
 
-	memset(order, 0, sizeof(order));
-	for(i = 0; i < count; ++i)
-	{
-		int not_finished = 0;
-		for(z = 0; z < count; ++z)
-			if (sort_order(&programs[z], order, count))
-				not_finished = 1;
-		if (not_finished == 0)
+	new = 0;
+	memset(tree, 0, sizeof(tree));
+
+	/* start with one root node */
+	for (i = 0; i < count; ++i) {
+		if (programs[i].after[0] == '\0') {
+			tree[0].prg = &programs[i];
+			++new;
+			++i;
 			break;
+		}
 	}
-	if (i >= count) {
-		printf("problem sorting programs, circular dependency?\n");
+	if (i >= count)
 		return -1;
-	}
 
-	for(i = 0; i < count; ++i)
+	/* initial level */
+	for (; i < count; ++i)
 	{
-		if (order[i] == NULL) {
-			return -1;
+		if (programs[i].after[0] == '\0') {
+			add_next(&tree[0], &tree[new], &programs[i]);
+			programs[i].status = 1;
+			if (++new >= count)
+				goto spawn_now; /* no next_level */
 		}
-
-		spawn_pre_exec(order[i]);
-		if (spawn(order[i])) {
-			printf("spawn failed\n");
-			return -1;
-		}
-		spawn_post_exec(order[i]);
 	}
-	return 0;
 
+	/* next_levels */
+	for (x = 0; x < count; ++x)
+	{
+		for (z = 0; z < count; ++z)
+		{
+			struct spawn_node *node = &tree[z];
+			if (node->prg == NULL)
+				break;
+			for (i = 0; i < count; ++i)
+			{
+				struct program *prg = &programs[i];
+				if (prg->status)
+					continue;
+				if (!strncmp(node->prg->name, prg->after, PRG_NAMELEN)) {
+					add_next_level(node, &tree[new], prg);
+					prg->status = 1;
+					if (++new >= count) {
+						goto spawn_now;
+					}
+					break;
+				}
+			}
+		}
+	}
+	printf("problem building spawn tree, circular dependency?\n");
+	return -1;
+
+spawn_now:
+	printf("\n");
+	if (print_spawn_tree(tree, 0))
+		return -1;
+	printf("\n");
+	if (spawn_prepare(tree))
+		return -1;
+	if (spawn_level(tree))
+		return -1;
+	return 0;
 }
 
 static int configs_dir_exists()
@@ -1081,7 +1182,8 @@ static int load_programs(struct program *programs, const unsigned int max_persis
 	while (timer++ < time_limit)
 	{
 		pid_t wpid;
-		wait_millisec(1);
+		wait_millisec(1, NOT_TERMINATOR);
+		check_termination();
 		wpid = waitpid(p, &status, WNOHANG);
 		if (wpid == p) {
 			break;

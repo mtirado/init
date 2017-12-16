@@ -4,5 +4,6 @@ gid 100
 respawn 0
 workdir /home/user
 cmdline /bin/bash /etc/init/scripts/fluxbox.sh
-environ PATH=/bin:/usr/bin:/usr/local/bin TERM=linux USER=user LOGNAME=user HOME=/home/user
+environ PATH=/bin:/usr/bin:/usr/local/bin TERM=linux USER=user LOGNAME=user HOME=/home/user DISPLAY=:1
 capable unbound FULLY_CAPABLE
+after sporg

@@ -32,7 +32,7 @@
  * respawn	- number of respawns, -1 is unlimited
  * uid		- user id
  * gid		- group id
- * tty		- stdio, default is 0 (console). TODO negative could be for daemons
+ * tty		- stdio, unspecified default is /dev/null
  * capable	- leave caps in bounding set "cap_net_bind_service cap_syslog etc"
  * wait         - sleep for some number of milliseconds before next program spawn.
  *                if a file path is also supplied, unlink file before exec, and
@@ -397,7 +397,6 @@ static int parse_tty(struct program *prg, char *params, const size_t len)
 		return -1;
 	}
 	else if (!is_serial && ttynum == 0) {
-		/* could silently use /dev/console instead of failing */
 		printf("tty0 not supported\n");
 		return -1;
 	}

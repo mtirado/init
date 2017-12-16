@@ -319,7 +319,7 @@ static int getch(char *c)
 	return 0;
 }
 
-static int close_stdin()
+static int close_stdio()
 {
 	int nullfd;
 
@@ -329,7 +329,9 @@ static int close_stdin()
 		return -1;
 	}
 	close(0);
-	if (dup2(nullfd, 0) != 0) {
+	if (dup2(nullfd, 0) != STDIN_FILENO
+			|| dup2(nullfd, STDOUT_FILENO) != STDOUT_FILENO
+			|| dup2(nullfd, STDERR_FILENO) != STDERR_FILENO ) {
 		printf("dup2(/dev/null): %s\n", strerror(errno));
 		return -1;
 	}
@@ -767,7 +769,7 @@ static int spawn(struct program *prg)
 		}
 	}
 	else {
-		if (close_stdin()) {
+		if (close_stdio()) {
 			_exit(-1);
 		}
 	}

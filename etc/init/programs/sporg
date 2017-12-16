@@ -3,5 +3,7 @@ uid 8000
 gid 80
 respawn 0
 workdir /home/sporg
-cmdline /bin/bash /etc/init/scripts/sporg.sh
-environ PATH=/bin:/usr/bin:/usr/local/bin TERM=linux USER=sporg LOGNAME=sporg HOME=/home/sporg
+cmdline /usr/bin/Xorg -config /home/sporg/sporg.conf -logfile sporg.log:1 :1
+environ PATH=/bin:/usr/bin:/usr/local/bin TERM=linux USER=sporg LOGNAME=sporg HOME=/home/sporg DISPLAY=:1
+wait 10000 /tmp/.X11-unix/X1
+after gtscreen

@@ -56,6 +56,10 @@
 #ifndef PRG_MAX_SLEEP
 	#define PRG_MAX_SLEEP (1000 * 60 * 60 * 12) /* 12 hour */
 #endif
+
+#define PRG_STATUS_SORTED    (1 << 0)
+#define PRG_STATUS_WAIT_FILE (1 << 1)
+#define PRG_STATUS_FAULT     (1 << 2)
 struct program {
 	/* avoid relative pointer to addr 0, considered as argv/environ sentinel */
 	unsigned int unused_relative_addr_0;
@@ -74,6 +78,7 @@ struct program {
 	int respawn; /* -1 for unlimited respawns */
 	unsigned int sleep;
 	unsigned int status;
+	unsigned int faultless;
 	struct timespec last_spawn;
 	char after[PRG_NAMELEN+1]; /* we are after this program */
 	char wait_file[PRG_PATHLEN+1]; /* wait for this file after spawn */

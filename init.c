@@ -905,6 +905,7 @@ failure:
 struct spawn_node {
 	struct spawn_node *next;
 	struct spawn_node *next_level;
+	struct spawn_node *after_node;
 	struct program *prg;
 };
 
@@ -939,7 +940,7 @@ static void add_next_level(struct spawn_node *at,
 
 /* TODO, instead of sleeping after every exec use a single wait value
  * for the entire level */
-static int spawn_post_exec(struct program *prg)
+static void spawn_post_exec(struct program *prg)
 {
 	unsigned int i;
 	if (prg->wait_file[0] == '/') {
@@ -947,38 +948,60 @@ static int spawn_post_exec(struct program *prg)
 		{
 			struct stat st;
 			wait_millisec(1, NOT_TERMINATOR);
-			if (stat(prg->wait_file, &st) == 0)
-				return 0; /* wait_file has emerged */
+			if (stat(prg->wait_file, &st) == 0) {
+				prg->status |= PRG_STATUS_WAIT_FILE;
+				return;
+			}
 		}
+		printf("fault: wait_file timed out on %s\n", prg->name);
+		prg->status |= PRG_STATUS_FAULT;
 	}
 	else {
 		wait_millisec(prg->sleep, NOT_TERMINATOR);
 	}
-	return 0;
 }
 
-static int spawn_level(struct spawn_node *level)
+static void spawn_level(struct spawn_node *level)
 {
 	struct spawn_node *node = level;
 	if (node == NULL)
-		return 0;
+		return;
 
-	do {
-		if (spawn(node->prg)) {
-			printf("spawn failed\n");
-			return -1;
+	for (; node ; node = node->next) {
+		if (node->prg->faultless) {
+			/* check everything before us for faults */
+			struct spawn_node *after = node->after_node;
+			while (after)
+			{
+				if (after->prg->status & PRG_STATUS_FAULT) {
+					node->prg->status |= PRG_STATUS_FAULT;
+					printf("fault: %s has faulted predecessor %s\n",
+							node->prg->name,
+							after->prg->name);
+				}
+				after = after->after_node;
+			}
 		}
-		spawn_post_exec(node->prg);
-		node = node->next;
-	} while (node);
+		if (node->prg->status & PRG_STATUS_FAULT) {
+			printf("not spawning faulted %s\n", node->prg->name);
+			continue;
+		}
+		if (spawn(node->prg)) {
+			printf("fault: error spawning %s\n", node->prg->name);
+			node->prg->status |= PRG_STATUS_FAULT;
+		}
+		else {
+			spawn_post_exec(node->prg);
+		}
+	}
 
 	node = level;
 	do {
-		if (spawn_level(node->next_level))
-			return -1;
+		spawn_level(node->next_level);
 		node = node->next;
 	} while (node);
-	return 0;
+
+	return;
 }
 
 static int print_spawn_tree(struct spawn_node *level, unsigned int depth)
@@ -1082,7 +1105,7 @@ static int spawn_programs(struct program *programs, const unsigned int count)
 	{
 		if (programs[i].after[0] == '\0') {
 			add_next(&tree[0], &tree[new], &programs[i]);
-			programs[i].status = 1;
+			programs[i].status |= PRG_STATUS_SORTED;
 			if (++new >= count)
 				goto spawn_now; /* no next_level */
 		}
@@ -1103,7 +1126,8 @@ static int spawn_programs(struct program *programs, const unsigned int count)
 					continue;
 				if (!strncmp(node->prg->name, prg->after, PRG_NAMELEN)) {
 					add_next_level(node, &tree[new], prg);
-					prg->status = 1;
+					tree[new].after_node = node;
+					prg->status |= PRG_STATUS_SORTED;
 					if (++new >= count) {
 						goto spawn_now;
 					}
@@ -1122,8 +1146,7 @@ spawn_now:
 	printf("\n");
 	if (spawn_prepare(tree))
 		return -1;
-	if (spawn_level(tree))
-		return -1;
+	spawn_level(tree);
 	return 0;
 }
 

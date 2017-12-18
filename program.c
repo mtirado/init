@@ -26,22 +26,22 @@
 #include "eslib/eslib.h"
 
 /*
- * workdir	- working directory for execve
- * cmdline	- absolute path to binary with arguments
- * environ	- environ "EVAR1=value1 EVAR2=value2"
- * respawn	- number of respawns, -1 is unlimited
- * uid		- user id
- * gid		- group id
- * tty		- stdio, unspecified default is /dev/null
- * capable	- leave caps in bounding set "cap_net_bind_service cap_syslog etc"
- * wait         - sleep for some number of milliseconds before next program spawn.
- *                if a file path is also supplied, unlink file before exec, and
- *                cancel sleep when that file reappears. this is only done once
- *                during system init, not for respawns.
+ * workdir	 - working directory for execve
+ * cmdline	 - absolute path to binary with arguments
+ * environ	 - environ "EVAR1=value1 EVAR2=value2"
+ * respawn	 - number of respawns, -1 is unlimited
+ * uid		 - user id
+ * gid		 - group id
+ * tty		 - stdio, unspecified default is /dev/null
+ * capable <set> - leave caps in bounding set "CAP_NET_BIND_SERVICE CAP_SYSLOG etc"
+ * wait <millisecs> <wait_file>
+ *               - sleep for some number of milliseconds before next program spawn.
+ *                 if a file path is also supplied, unlink file before exec, and
+ *                 cancel sleep when that file reappears. this is only done once
+ *                 during system init, not for respawns.
+ * faultless     - if program file has been loaded, don't exec unless faultless
+ *                 e.g: if the wait_file timed out on the program we were after
  *
- * TODO:
- * critical	- init failure if program fails to launch, failure option can be to
- * 		  prevent launching any more programs, shut down, or halt system
  */
 enum {
 	KW_WORKDIR=0,
@@ -54,9 +54,10 @@ enum {
 	KW_CAPABLE,
 	KW_AFTER,
 	KW_WAIT,
+	KW_FAULTLESS,
 	KWCOUNT
 };
-#define KWSIZE 8 /* + terminator */
+#define KWSIZE 10 /* + terminator */
 const char cfg_keywords[KWCOUNT][KWSIZE] = {
 	"workdir",
 	"cmdline",
@@ -67,7 +68,8 @@ const char cfg_keywords[KWCOUNT][KWSIZE] = {
 	"tty",
 	"capable",
 	"after",
-	"wait"
+	"wait",
+	"faultless"
 };
 
 struct program g_programs[MAX_PERSISTENT];
@@ -522,7 +524,6 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 			return -1;
 		}
 		break;
-
 	default:
 		printf("invalid keyword\n");
 		return -1;
@@ -556,6 +557,9 @@ static int program_parse_config(struct program *prg_out, char *filename,
 	memset(&newprg, 0, sizeof(struct program));
 	if (es_strcopy(newprg.name, filename, PRG_NAMELEN, NULL))
 		return -1;
+	if (es_strcopy(prg_out->name, filename, PRG_NAMELEN, NULL))
+		return -1; /* save name for non-fatal faults */
+
 	/* set defaults */
 	newprg.respawn = 0;
 	newprg.uid = USERID_MAX;
@@ -603,22 +607,25 @@ static int program_parse_config(struct program *prg_out, char *filename,
 			fpos += linelen + 1;
 			continue;
 		}
-		param = eslib_string_toke(line, linepos, linelen, &advance);
-		linepos += advance;
-		if (param == NULL) {
-			printf("missing parameters for keyword %s\n", keyword);
-			return -1;
-		}
-
 		kw = get_keyword(line);
 		if (kw < 0) {
 			printf("unknown keyword %s\n", line);
-			return -1;
+			return 1;
 		}
 
-		if (load_parameters(&newprg, kw, param, linelen - (param - line))) {
+		param = eslib_string_toke(line, linepos, linelen, &advance);
+		linepos += advance;
+		/* keywords without parameters at the top */
+		if (kw == KW_FAULTLESS) {
+			newprg.faultless = 1;
+		}
+		else if (param == NULL) {
+			printf("missing parameters for keyword %s\n", keyword);
+			return 1;
+		}
+		else if (load_parameters(&newprg, kw, param, linelen - (param - line))) {
 			printf("load_parameters failed on line %d\n", line_num);
-			return -1;
+			return 1;
 		}
 
 		fpos += linelen + 1;
@@ -632,11 +639,11 @@ static int program_parse_config(struct program *prg_out, char *filename,
 
 	if (newprg.workdir[0] != '/') {
 		printf("workdir is missing\n");
-		return -1;
+		return 1;
 	}
 	if (newprg.binpath == NULL) {
 		printf("cmdline is missing\n");
-		return -1;
+		return 1;
 	}
 	memcpy(prg_out, &newprg, sizeof(struct program));
 	return 0;
@@ -722,11 +729,7 @@ static int program_load_config(struct program *prg, char *filename)
 	flen = r;
 
 	/* fill out program struct */
-	if (program_parse_config(prg, filename, fbuf, flen)) {
-		printf("config(%s) parse error\n", cfg_path);
-		return -1;
-	}
-	return 0;
+	return program_parse_config(prg, filename, fbuf, flen);
 }
 
 /*  validate and return strlen
@@ -851,9 +854,13 @@ int program_load_configs_dir(int pipeout)
 			goto failure;
 		}
 
-		if (program_load_config(&prg, dent->d_name)) {
-			goto failure;
+		r = program_load_config(&prg, dent->d_name);
+		if (r > 0) {
+			printf("fault: program config error: %s\n", dent->d_name);
+			prg.status |= PRG_STATUS_FAULT;
 		}
+		if (r < 0)
+			goto failure;
 
 		/* write program */
 		if (file_write(pipeout, (char *)&prg, sizeof(prg)) != sizeof(prg)) {

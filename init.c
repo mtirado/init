@@ -805,21 +805,26 @@ static void respawn(struct program *prg)
 	return;
 }
 
-static void post_task(struct program *prg, pid_t p)
+static void post_task(struct program *programs, pid_t p)
 {
 	int i;
 	for (i = 0; i < MAX_PERSISTENT; ++i)
 	{
-		if (prg[i].pid == p)
+		struct program *prg = &programs[i];
+		if (prg->pid == p)
 		{
-			prg[i].pid = 0;
-			respawn(&prg[i]);
+			prg->pid = 0;
+			if (prg->faultless && prg->status & PRG_STATUS_FAULT) {
+				printf("not respawning faulted %s\n", prg->name);
+				return;
+			}
+			respawn(prg);
 			return;
 		}
 	}
 }
 
-static void wait_loop(struct program *prg)
+static void wait_loop(struct program *programs)
 {
 	while (1)
 	{
@@ -829,12 +834,10 @@ static void wait_loop(struct program *prg)
 		check_termination();
 
 		p = waitpid(-1, &status, 0);
-		if (p == -1 && errno != EINTR) {
-			usleep(3000000);
-		}
-		else if (p) {
-			post_task(prg, p);
-		}
+		if (p == -1 && errno != EINTR)
+			usleep(1000000);
+		else if (p > 1)
+			post_task(programs, p);
 	}
 }
 
@@ -955,6 +958,8 @@ static void spawn_post_exec(struct program *prg)
 		}
 		printf("fault: wait_file timed out on %s\n", prg->name);
 		prg->status |= PRG_STATUS_FAULT;
+		if (prg->faultless)
+			kill(prg->pid, SIGTERM); /* sigkill is too dangerous */
 	}
 	else {
 		wait_millisec(prg->sleep, NOT_TERMINATOR);

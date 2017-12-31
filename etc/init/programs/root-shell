@@ -4,5 +4,5 @@ tty 2
 respawn -1
 workdir /root
 cmdline /bin/sh --login
-environ PATH=/bin:/usr/bin TERM=linux USER=root LOGNAME=root HOME=/root
+environ PATH=/sbin:/usr/sbin:/bin:/usr/bin TERM=linux USER=root LOGNAME=root HOME=/root
 capable inherit FULLY_CAPABLE

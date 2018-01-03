@@ -113,8 +113,8 @@ install:
 	@install -Dvm 0750  "modman.sh"        "$(DESTDIR)/sbin/modman.sh"
 	@install -Dvm 0750  "etc/init.sh"      "$(DESTDIR)/$(INIT_PROGRAM)"
 	@install -Dvm 0750  "etc/shutdown.sh"  "$(DESTDIR)/$(SHUTDOWN_PROGRAM)"
-	@install -Dvm 0750  "etc/init/programs/user-shell" \
-						"$(DESTDIR)/etc/init/programs/user-shell"
+	@install -Dvm 0750  "etc/init/programs/root-shell" \
+						"$(DESTDIR)/etc/init/programs/root-shell"
 
 clean:
 	@$(foreach obj, $(INIT_OBJS), rm -fv $(obj);)

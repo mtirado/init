@@ -1,6 +1,6 @@
 uid 0
 gid 0
-tty 2
+tty 1
 respawn -1
 workdir /root
 cmdline /bin/sh --login

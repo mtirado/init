@@ -1,6 +1,6 @@
 uid 1000
 gid 100
-tty 1
+tty 2
 respawn -1
 workdir /home/user
 cmdline /usr/bin/bash --login

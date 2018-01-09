@@ -1094,16 +1094,25 @@ static int spawn_programs(struct program *programs, const unsigned int count)
 	memset(tree, 0, sizeof(tree));
 
 	/* start with one root node */
-	for (i = 0; i < count; ++i) {
-		if (programs[i].after[0] == '\0') {
-			tree[0].prg = &programs[i];
-			++new;
-			++i;
-			break;
-		}
-	}
-	if (i >= count)
+	if (count == 0) {
 		return -1;
+	}
+	else if (count == 1) {
+		tree[0].prg = &programs[0];
+		goto spawn_now;
+	}
+	else {
+		for (i = 0; i < count; ++i) {
+			if (programs[i].after[0] == '\0') {
+				tree[0].prg = &programs[i];
+				++new;
+				++i;
+				break;
+			}
+		}
+		if (i >= count)
+			return -1;
+	}
 
 	/* initial level */
 	for (; i < count; ++i)

@@ -108,6 +108,7 @@ install:
 	@umask 022
 	@install -dvm 0755  "$(DESTDIR)/sbin"
 	@install -dvm 0755  "$(DESTDIR)/etc/init"
+	@install -Dvm 0750  "$(INITRAM)"       "$(DESTDIR)/init"
 	@install -Dvm 0750  "$(INIT)"          "$(DESTDIR)/sbin/init"
 	@install -Dvm 0750  "$(SHUTDOWN)"      "$(DESTDIR)/sbin/shutdown"
 	@install -Dvm 0750  "modman.sh"        "$(DESTDIR)/sbin/modman.sh"

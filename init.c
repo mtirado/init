@@ -579,6 +579,32 @@ static int downgrade_process(struct program *prg)
 	return 0;
 }
 
+static int setup_process(struct program *prg)
+{
+	unsigned int i;
+
+	/* set resource limits */
+	for (i = 0; i < RLIMIT_NLIMITS; ++i)
+	{
+		if (prg->rlimit[i].is_set) {
+			struct rlimit old, new;
+			if (getrlimit(i, &old)) {
+				printf("getrlimit: %s\n", strerror(errno));
+				return -1;
+			}
+			new.rlim_cur = old.rlim_cur;
+			new.rlim_max = prg->rlimit[i].val;
+			if (new.rlim_cur > new.rlim_max)
+				new.rlim_cur = new.rlim_max;
+			if (setrlimit(i, &new)) {
+				printf("setrlimit: %s\n", strerror(errno));
+				return -1;
+			}
+		}
+	}
+	return 0;
+}
+
 static int check_permission(struct program *prg)
 {
 	struct stat st;
@@ -777,10 +803,10 @@ static int spawn(struct program *prg)
 		printf("chdir(%s): %s\n", prg->workdir, strerror(errno));
 		_exit(-1);
 	}
-	if (downgrade_process(prg)) {
+	if (setup_process(prg))
 		_exit(-1);
-		printf("error: could not set uid\n");
-	}
+	if (downgrade_process(prg))
+		_exit(-1);
 	if (execve(prg->binpath, prg->argv, prg->environ)) {
 		printf("exec(%s): %s\n", prg->binpath, strerror(errno));
 	}

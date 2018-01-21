@@ -28,7 +28,7 @@
 /*
  * workdir	 - working directory for execve
  * cmdline	 - absolute path to binary with arguments
- * environ	 - environ "EVAR1=value1 EVAR2=value2"
+ * environ	 - environ EVAR1=value1 EVAR2=value2
  * respawn	 - number of respawns, -1 is unlimited
  * uid		 - user id
  * gid		 - group id
@@ -41,6 +41,7 @@
  *                 during system init, not for respawns.
  * faultless     - if program file has been loaded, don't exec unless faultless
  *                 e.g: if the wait_file timed out on the program we were after
+ * rlimit        - set resource hard limit, setrlimit(2)
  *
  */
 enum {
@@ -55,6 +56,7 @@ enum {
 	KW_AFTER,
 	KW_WAIT,
 	KW_FAULTLESS,
+	KW_RLIMIT,
 	KWCOUNT
 };
 #define KWSIZE 10 /* + terminator */
@@ -69,12 +71,23 @@ const char cfg_keywords[KWCOUNT][KWSIZE] = {
 	"capable",
 	"after",
 	"wait",
-	"faultless"
+	"faultless",
+	"rlimit"
+};
+
+#define RLIMIT_COUNT 2
+#define RLIMIT_NAME_MAX 16
+struct rlimit_map
+{
+	int resource;
+	char name[RLIMIT_NAME_MAX];
+};
+struct rlimit_map g_rlimit_map[RLIMIT_COUNT] = {
+	{ RLIMIT_MEMLOCK, "memlock" },
+	{ RLIMIT_RTPRIO,  "rtprio" },
 };
 
 struct program g_programs[MAX_PERSISTENT];
-
-
 static char *program_relative_ptr(struct program *prg, char *ptr)
 {
 	return (char *)((size_t)ptr - (size_t)prg);
@@ -374,6 +387,50 @@ err_capset:
 	return -1;
 }
 
+static int load_rlimit(struct program *prg, char *params, const size_t len)
+{
+	char *name;
+	char *value;
+	unsigned int i;
+	unsigned int advance;
+	unsigned int pos = 0;
+
+	name = eslib_string_toke(params, pos, len, &advance);
+	pos += advance;
+	if (name == NULL) {
+		printf("missing rlimit name\n");
+		return -1;
+	}
+	value = eslib_string_toke(params, pos, len, &advance);
+	if (value == NULL) {
+		printf("missing rlimit value\n");
+		return -1;
+	}
+	for (i = 0; i < RLIMIT_COUNT; ++i)
+	{
+		char *rname = g_rlimit_map[i].name;
+		if (strncmp(rname, name, RLIMIT_NAME_MAX) == 0) {
+			int res_id = g_rlimit_map[i].resource;
+			int32_t rval; /* TODO: add 64bit conversion functions to eslib */
+			if (res_id >= RLIMIT_NLIMITS)
+				return -1;
+			if (prg->rlimit[res_id].is_set) {
+				printf("rlimit %s is set twice.\n", name);
+				return -1;
+			}
+			if (eslib_string_to_s32(value, &rval, 10)) {
+				printf("bad rlimit value: %s\n", value);
+				return -1;
+			}
+			prg->rlimit[res_id].is_set = 1;
+			prg->rlimit[res_id].val = rval;
+			return 0;
+		}
+	}
+	printf("unsupported rlimit: %s\n", name);
+	return -1;
+}
+
 static int parse_tty(struct program *prg, char *params, const size_t len)
 {
 	int32_t ttynum;
@@ -521,6 +578,12 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 	case KW_WAIT:
 		if (load_wait(prg, params, len)) {
 			printf("load_wait\n");
+			return -1;
+		}
+		break;
+	case KW_RLIMIT:
+		if (load_rlimit(prg, params, len)) {
+			printf("load_rlimit\n");
 			return -1;
 		}
 		break;

@@ -582,12 +582,20 @@ static int downgrade_process(struct program *prg)
 static int setup_process(struct program *prg)
 {
 	unsigned int i;
-
+	if (setresuid(prg->uid, 0, 0)) {
+		printf("setresuid: %s\n", strerror(errno));
+		return -1;
+	}
 	/* set resource limits */
 	for (i = 0; i < RLIMIT_NLIMITS; ++i)
 	{
 		if (prg->rlimit[i].is_set) {
 			struct rlimit old, new;
+			/*
+			 * memlock, msgqueue, nproc and sigpending apply to callers
+			 * real user id systemwide. to be extra cautious we may want to
+			 * track those rlimits allowing them to be set only once!
+			 */
 			if (getrlimit(i, &old)) {
 				printf("getrlimit: %s\n", strerror(errno));
 				return -1;
@@ -601,6 +609,10 @@ static int setup_process(struct program *prg)
 				return -1;
 			}
 		}
+	}
+	if (setresuid(0, 0, 0)) {
+		printf("setresuid: %s\n", strerror(errno));
+		return -1;
 	}
 	return 0;
 }

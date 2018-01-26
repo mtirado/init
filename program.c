@@ -75,16 +75,32 @@ const char cfg_keywords[KWCOUNT][KWSIZE] = {
 	"rlimit"
 };
 
-#define RLIMIT_COUNT 2
+#define RLIMIT_COUNT 16
 #define RLIMIT_NAME_MAX 16
 struct rlimit_map
 {
 	int resource;
 	char name[RLIMIT_NAME_MAX];
 };
+
+/* note: when adding support for new kernel rlimits, increase count and maybe name_max */
 struct rlimit_map g_rlimit_map[RLIMIT_COUNT] = {
-	{ RLIMIT_MEMLOCK, "memlock" },
-	{ RLIMIT_RTPRIO,  "rtprio" },
+{ RLIMIT_CPU,        "cpu"        }, /* cpu time (in seconds) */
+{ RLIMIT_FSIZE,      "fsize"      }, /* filesize program can create or extend */
+{ RLIMIT_DATA,       "data"       }, /* size of data segment */
+{ RLIMIT_STACK,      "stack"      }, /* size of stack */
+{ RLIMIT_CORE,       "core"       }, /* size of core file, 0 == no core dumps */
+{ RLIMIT_RSS,        "rss"        }, /* resident set, virtual pages (in bytes) */
+{ RLIMIT_NPROC,      "nproc"      }, /* process limit */
+{ RLIMIT_NOFILE,     "nofile"     }, /* how many files process can open */
+{ RLIMIT_MEMLOCK,    "memlock"    }, /* mlock + mmap and shmctl (see manual about this)*/
+{ RLIMIT_AS,         "as"         }, /* size of virtual memory address space */
+{ RLIMIT_LOCKS,      "locks"      }, /* limit for flock and fcntl leases */
+{ RLIMIT_SIGPENDING, "sigpending" }, /* max pending signals */
+{ RLIMIT_MSGQUEUE,   "msgqueue"   }, /* mq_open message queues */
+{ RLIMIT_NICE,       "nice"       }, /* nice value ceiling */
+{ RLIMIT_RTPRIO,     "rtprio"     }, /* real time priority ceiling */
+{ RLIMIT_RTTIME,     "rttime"     }, /* time (in microseconds) allowed nonblocking */
 };
 
 struct program g_programs[MAX_PERSISTENT];

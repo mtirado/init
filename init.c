@@ -307,7 +307,7 @@ static int getch(char *c)
 	if (tcgetattr(STDIN_FILENO, &orig))
 		return -1;
 	memcpy(&tmp, &orig, sizeof(tmp));
-	tmp.c_lflag &= ~(ICANON|ECHO);
+	tmp.c_lflag &= (unsigned int)~(ICANON|ECHO);
 	if (tcsetattr(STDIN_FILENO, TCSANOW, &tmp))
 		return -1;
 	if (read(STDIN_FILENO, c, 1) != 1) {
@@ -442,13 +442,13 @@ static int prg_set_caps(unsigned char *cap_b,
 	for(i = 0; i < NUM_OF_CAPS; ++i)
 	{
 		if (cap_e && cap_e[i] == 1) {
-			data[CAP_TO_INDEX(i)].effective |= CAP_TO_MASK(i);
+			data[CAP_TO_INDEX(i)].effective |= (uint32_t)CAP_TO_MASK(i);
 		}
 		if (cap_p && cap_p[i] == 1) {
-			data[CAP_TO_INDEX(i)].permitted	|= CAP_TO_MASK(i);
+			data[CAP_TO_INDEX(i)].permitted	|= (uint32_t)CAP_TO_MASK(i);
 		}
 		if (cap_i && cap_i[i] == 1) {
-			data[CAP_TO_INDEX(i)].inheritable |= CAP_TO_MASK(i);
+			data[CAP_TO_INDEX(i)].inheritable |= (uint32_t)CAP_TO_MASK(i);
 		}
 
 		/* clear bounding set unless requested or inheriting */
@@ -651,7 +651,7 @@ static int check_permission(struct program *prg)
 static unsigned long usecs_elapsed(struct timespec last, struct timespec cur)
 {
 	struct timespec elapsed;
-	unsigned long usec;
+	long usec;
 
 	if (cur.tv_sec < last.tv_sec
 			|| (cur.tv_sec == last.tv_sec && cur.tv_nsec < last.tv_nsec)) {
@@ -668,7 +668,9 @@ static unsigned long usecs_elapsed(struct timespec last, struct timespec cur)
 		usec = ((1000000000 - last.tv_nsec) + cur.tv_nsec) / 1000;
 		usec += (elapsed.tv_sec-1) * 1000000;
 	}
-	return usec;
+	if (usec < 0)
+		usec = 0;
+	return (unsigned long)usec;
 }
 
 static int check_spawn_timer(struct program *prg)
@@ -926,7 +928,7 @@ static int read_program_pipe(int fd, struct program *programs,
 		}
 		while (r == -1 && errno == EINTR);
 		if (r > 0)
-			i += r;
+			i += (unsigned int)r;
 		else if (r == 0)
 			break;
 		else
@@ -1216,8 +1218,8 @@ static int load_programs(struct program *programs, const unsigned int max_persis
 {
 	const unsigned int time_limit = 10000; /* 10+ seconds */
 	unsigned int timer = 0;
-	int status;
 	int count;
+	int status;
 	int r;
 	pid_t p;
 	int ipc[2];
@@ -1280,24 +1282,25 @@ static int load_programs(struct program *programs, const unsigned int max_persis
 		goto close_err;
 	}
 
-	count = read_program_pipe(ipc[0], programs, max_persistent);
+	r = read_program_pipe(ipc[0], programs, max_persistent);
 	close(ipc[0]);
-	if (count < 0) {
+	if (r < 0) {
 		printf("failed reading program config pipe\n");
 		return -1;
 	}
-	else if (count == 0)
+	else if (r == 0)
 	{
 		printf("no programs to load\n");
 		return 0;
 	}
 
+	count = r;
 	for (r = 0; r < count; ++r)
 	{
 		if (program_land(&programs[r]))
 			panic();
 	}
-	return spawn_programs(programs, count);
+	return spawn_programs(programs, (unsigned int)count);
 close_err:
 	close(ipc[0]);
 	return -1;

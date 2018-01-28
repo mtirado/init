@@ -10,6 +10,7 @@
  */
 
 #define _GNU_SOURCE
+#include <stdint.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <errno.h>
@@ -427,14 +428,15 @@ static int load_rlimit(struct program *prg, char *params, const size_t len)
 		char *rname = g_rlimit_map[i].name;
 		if (strncmp(rname, name, RLIMIT_NAME_MAX) == 0) {
 			int res_id = g_rlimit_map[i].resource;
-			int32_t rval; /* TODO: add 64bit conversion functions to eslib */
+			uint64_t rval;
 			if (res_id >= RLIMIT_NLIMITS)
 				return -1;
 			if (prg->rlimit[res_id].is_set) {
 				printf("rlimit %s is set twice.\n", name);
 				return -1;
 			}
-			if (eslib_string_to_s32(value, &rval, 10)) {
+			/* signed because users may enter -1 for unlimited */
+			if (eslib_string_to_s64(value, (int64_t *)&rval, 10)) {
 				printf("bad rlimit value: %s\n", value);
 				return -1;
 			}
@@ -612,7 +614,7 @@ static int load_parameters(struct program *prg, int kw, char *params, const size
 
 static int get_keyword(char *kw)
 {
-	unsigned int i = 0;
+	int i = 0;
 	for (; i < KWCOUNT; ++i)
 	{
 		if (strncmp(cfg_keywords[i], kw, KWSIZE) == 0)
@@ -702,7 +704,8 @@ static int program_parse_config(struct program *prg_out, char *filename,
 			printf("missing parameters for keyword %s\n", keyword);
 			return 1;
 		}
-		else if (load_parameters(&newprg, kw, param, linelen - (param - line))) {
+		else if (load_parameters(&newprg, kw, param,
+					linelen - (size_t)(param - line))) {
 			printf("load_parameters failed on line %d\n", line_num);
 			return 1;
 		}
@@ -733,11 +736,13 @@ static int file_read(int fd, char *buf, const unsigned int size)
 {
 	int r;
 	unsigned int bytes_read = 0;
+	if (size >= INT_MAX)
+		return -1;
 	while (bytes_read < size)
 	{
 		r = read(fd, &buf[bytes_read], size - bytes_read);
 		if (r > 0) {
-			bytes_read += r;
+			bytes_read += (unsigned int)r;
 			if (bytes_read > size) {
 				printf("file_read: file too big\n");
 				return -1;
@@ -762,7 +767,7 @@ static int file_read(int fd, char *buf, const unsigned int size)
 			return -1;
 		}
 	}
-	return bytes_read;
+	return (int)bytes_read;
 }
 
 static int program_load_config(struct program *prg, char *filename)
@@ -805,7 +810,7 @@ static int program_load_config(struct program *prg, char *filename)
 		printf("problem reading program config: %s\n", cfg_path);
 		return -1;
 	}
-	flen = r;
+	flen = (size_t)r;
 
 	/* fill out program struct */
 	return program_parse_config(prg, filename, fbuf, flen);
@@ -817,7 +822,7 @@ static int program_load_config(struct program *prg, char *filename)
  */
 static int check_filename(char *name)
 {
-	int len = strnlen(name, NAME_MAX);
+	int len = (int)strnlen(name, NAME_MAX);
 	int i;
 	if (len == 0 || len >= NAME_MAX) {
 		return -1;
@@ -844,8 +849,8 @@ static int check_filename(char *name)
 
 static int count_files(DIR *dir, unsigned int *out)
 {
-	const int limit = PRG_FILE_LIMIT;
-	int count = 0;
+	const unsigned int limit = PRG_FILE_LIMIT;
+	unsigned int count = 0;
 	while (count <= limit)
 	{
 		struct dirent *dent;
@@ -872,6 +877,8 @@ static int count_files(DIR *dir, unsigned int *out)
 static int file_write(int fd, char *buf, size_t size)
 {
 	size_t written = 0;
+	if (size >= INT_MAX)
+		return -1;
 	while (written < size)
 	{
 		int r = write(fd, buf + written, size - written);
@@ -882,13 +889,13 @@ static int file_write(int fd, char *buf, size_t size)
 			printf("write: %s\n", strerror(errno));
 			return -1;
 		}
-		written += r;
+		written += (unsigned int)r;
 	}
 	if (written != size) {
 		printf("write pipe error\n");
 		return -1;
 	}
-	return written;
+	return (int)written;
 }
 
 int program_load_configs_dir(int pipeout)

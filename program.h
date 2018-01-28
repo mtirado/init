@@ -58,13 +58,14 @@
 	#define PRG_MAX_SLEEP (1000 * 60 * 60 * 12) /* 12 hour */
 #endif
 
+
 #define PRG_STATUS_SORTED    (1 << 0)
 #define PRG_STATUS_WAIT_FILE (1 << 1)
 #define PRG_STATUS_FAULT     (1 << 2)
 
 struct set_rlimit {
 	int is_set;
-	rlim_t val;
+	uint64_t val;
 };
 
 struct program {

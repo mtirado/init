@@ -12,10 +12,11 @@ SHUTDOWN_PROGRAM=/etc/shutdown.sh
 endif
 
 DEFINES := -DMAX_SYSTEMPATH=1024 			\
+	   -D_FILE_OFFSET_BITS=64			\
 	   -DINIT_PROGRAM=\"$(INIT_PROGRAM)\"		\
 	   -DSHUTDOWN_PROGRAM=\"$(SHUTDOWN_PROGRAM)\"
 
-CFLAGS  := -pedantic -Wall -Wextra -Werror $(DEFINES)
+CFLAGS  := -pedantic -Wall -Wextra -Wconversion -Werror $(DEFINES)
 
 # remove unused code from eslb
 CFLAGS  += -ffunction-sections

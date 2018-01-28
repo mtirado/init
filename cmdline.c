@@ -38,7 +38,7 @@ char *get_cmdline(const char *param, unsigned int *out_len)
 		return NULL;
 	}
 	close(fd);
-	size = r;
+	size = (unsigned int)r;
 
 	i = 0;
 	do
